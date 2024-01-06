@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package raft;
+option go_package = ".";
+
+service RaftCall {
+  rpc HeartBeat(HeartBeatRequest) returns (HeartBeatResponse) {}
+  rpc RequestPreVote(RequestPreVoteRequest) returns (RequestPreVoteResponse) {}
+  rpc RequestVote(RequestVoteRequest) returns (RequestVoteResponse) {}
+}
+
+message HeartBeatRequest {
+  string topic = 2;
+  string partition = 3;
+  bytes arg = 1;
+}
+
+message HeartBeatResponse {
+  string topic = 2;
+  string partition = 3;
+  bytes result = 1;
+}
+
+message RequestPreVoteRequest {
+  string topic = 2;
+  string partition = 3;
+  bytes arg = 1;
+}
+
+message RequestPreVoteResponse {
+  string topic = 2;
+  string partition = 3;
+  bytes result = 1;
+}
+
+message RequestVoteRequest {
+  string topic = 2;
+  string partition = 3;
+  bytes arg = 1;
+}
+
+message RequestVoteResponse {
+  string topic = 2;
+  string partition = 3;
+  bytes result = 1;
+}
