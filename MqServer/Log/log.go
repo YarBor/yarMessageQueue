@@ -10,6 +10,10 @@ func SetLogOutput(w io.Writer) {
 	log.SetOutput(w)
 }
 
+func SetLogFlags(flags int) {
+	log.SetFlags(flags)
+}
+
 const (
 	_TRACE = 1
 	_DEBUG = 2
@@ -20,6 +24,10 @@ const (
 )
 
 var logLevel int = 2
+
+func init() {
+	log.SetFlags(log.Lmicroseconds)
+}
 
 func SetLogLevel(l int) error {
 	switch l {

@@ -1,0 +1,127 @@
+syntax = "proto3";
+
+package MqServer;
+option go_package = ".";
+
+message Account {
+  enum Mode {
+    root = 0;
+    normal = 1;
+  }
+  string Name = 1;
+  string Password = 2;
+}
+
+message Request {
+  Account _ = 2;
+  int64 Id = 1;
+}
+
+message Message {
+  bytes data = 1;
+  string timestamp = 2;
+}
+
+message Response {
+  enum ResponseMode {
+    Success = 0;
+    Failure = 1;
+    MetadataUpdate = 2;
+    PeerNoFind = 3;
+    Timeout = 4;
+  }
+  ResponseMode mode = 1;
+}
+
+message RegisterConsumerRequest {
+  Request _ = 10;
+  string Topic = 1;
+  string Partition = 2;
+  string GroupId = 3;
+  int32 MaxPullRecords = 4;
+  int32 Session_ms = 5;
+}
+
+message RegisterConsumerResponse {
+  Response _ = 1;
+  int64 Id = 2;
+  string Topic = 3;
+  string Partition = 4;
+}
+
+message Ack {
+  Account _ = 2;
+  int64 offset = 1;
+}
+
+message PullMessageRequest {
+  Request _ = 1;
+  string Topic = 2;
+  string Partition = 3;
+}
+
+message PushMessageRequest {
+  Request _ = 1;
+  repeated Message message = 2;
+}
+
+message PullMessageResponse {
+  Response _ = 1;
+  repeated Message message = 2;
+}
+
+message PushMessageResponse { Response _ = 1; }
+
+message RegisterProducerRequest {
+  Request _ = 1;
+  string Topic = 2;
+  bool Copyable = 3;
+  int32 CopyNumber = 4;
+}
+
+message RegisterProducerResponse {
+  Response _ = 1;
+  int64 Id = 2;
+}
+
+message UpdateMetadataRequest {
+  Request _ = 1;
+  int32 MetadataTerm = 2;
+}
+
+message Tp {
+  string Topic = 1;
+  string Partition = 2;
+  string Url = 3;
+}
+
+message ClientFocusInfo { repeated Tp Tps = 1; }
+
+// 是 针对 某个Id(C/P) 进行的 元数据查询
+message UpdateMetadataResponse {
+  Response _ = 1;
+  ClientFocusInfo Info = 2;
+  int32 MetadataTerm = 3;
+}
+message UnRegisterConsumerResponse {}
+message UnRegisterConsumerRequest {
+  Request _ = 1;
+}
+message UnRegisterProducerRequest {
+  Request _ = 1;
+}
+message UnRegisterProducerResponse {}
+service MqServerCall {
+  rpc Heartbeat(Ack) returns (Response) {}
+  rpc RegisterConsumer(RegisterConsumerRequest)
+      returns (RegisterConsumerResponse) {}
+  rpc RegisterProducer(RegisterProducerRequest)
+      returns (RegisterProducerResponse) {}
+  rpc UnRegisterConsumer(UnRegisterConsumerRequest)
+      returns (UnRegisterConsumerResponse) {}
+  rpc UnRegisterProducer(UnRegisterProducerRequest)
+      returns (UnRegisterProducerResponse) {}
+  rpc PullMessage(PullMessageRequest) returns (PullMessageResponse) {}
+  rpc PushMessage(PushMessageRequest) returns (PushMessageResponse) {}
+  rpc UpdateMetadata(UpdateMetadataRequest) returns (UpdateMetadataResponse) {}
+}
