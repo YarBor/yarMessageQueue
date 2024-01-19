@@ -22,12 +22,24 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type MqServerCallClient interface {
-	Heartbeat(ctx context.Context, in *Ack, opts ...grpc.CallOption) (*Response, error)
+	// 注册消费者
 	RegisterConsumer(ctx context.Context, in *RegisterConsumerRequest, opts ...grpc.CallOption) (*RegisterConsumerResponse, error)
+	// 注册生产者
 	RegisterProducer(ctx context.Context, in *RegisterProducerRequest, opts ...grpc.CallOption) (*RegisterProducerResponse, error)
+	// 创建话题
+	CreateTopic(ctx context.Context, in *CreateTopicRequest, opts ...grpc.CallOption) (*CreateTopicResponse, error)
+	QueryTopic(ctx context.Context, in *QueryTopicRequest, opts ...grpc.CallOption) (*QueryTopicResponse, error)
+	DestroyTopic(ctx context.Context, in *DestroyTopicRequest, opts ...grpc.CallOption) (*DestroyTopicResponse, error)
+	ManagePartition(ctx context.Context, in *ManagePartitionRequest, opts ...grpc.CallOption) (*ManagePartitionResponse, error)
+	// 注销
+	UnRegisterConsumer(ctx context.Context, in *UnRegisterConsumerRequest, opts ...grpc.CallOption) (*UnRegisterConsumerResponse, error)
+	UnRegisterProducer(ctx context.Context, in *UnRegisterProducerRequest, opts ...grpc.CallOption) (*UnRegisterProducerResponse, error)
+	// 客户端和server之间的心跳
+	Heartbeat(ctx context.Context, in *Ack, opts ...grpc.CallOption) (*Response, error)
+	// 拉取消息
 	PullMessage(ctx context.Context, in *PullMessageRequest, opts ...grpc.CallOption) (*PullMessageResponse, error)
+	// 推送消息
 	PushMessage(ctx context.Context, in *PushMessageRequest, opts ...grpc.CallOption) (*PushMessageResponse, error)
-	UpdateMetadata(ctx context.Context, in *UpdateMetadataRequest, opts ...grpc.CallOption) (*UpdateMetadataResponse, error)
 }
 
 type mqServerCallClient struct {
@@ -36,15 +48,6 @@ type mqServerCallClient struct {
 
 func NewMqServerCallClient(cc grpc.ClientConnInterface) MqServerCallClient {
 	return &mqServerCallClient{cc}
-}
-
-func (c *mqServerCallClient) Heartbeat(ctx context.Context, in *Ack, opts ...grpc.CallOption) (*Response, error) {
-	out := new(Response)
-	err := c.cc.Invoke(ctx, "/MqServer.MqServerCall/Heartbeat", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 func (c *mqServerCallClient) RegisterConsumer(ctx context.Context, in *RegisterConsumerRequest, opts ...grpc.CallOption) (*RegisterConsumerResponse, error) {
@@ -59,6 +62,69 @@ func (c *mqServerCallClient) RegisterConsumer(ctx context.Context, in *RegisterC
 func (c *mqServerCallClient) RegisterProducer(ctx context.Context, in *RegisterProducerRequest, opts ...grpc.CallOption) (*RegisterProducerResponse, error) {
 	out := new(RegisterProducerResponse)
 	err := c.cc.Invoke(ctx, "/MqServer.MqServerCall/RegisterProducer", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mqServerCallClient) CreateTopic(ctx context.Context, in *CreateTopicRequest, opts ...grpc.CallOption) (*CreateTopicResponse, error) {
+	out := new(CreateTopicResponse)
+	err := c.cc.Invoke(ctx, "/MqServer.MqServerCall/CreateTopic", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mqServerCallClient) QueryTopic(ctx context.Context, in *QueryTopicRequest, opts ...grpc.CallOption) (*QueryTopicResponse, error) {
+	out := new(QueryTopicResponse)
+	err := c.cc.Invoke(ctx, "/MqServer.MqServerCall/QueryTopic", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mqServerCallClient) DestroyTopic(ctx context.Context, in *DestroyTopicRequest, opts ...grpc.CallOption) (*DestroyTopicResponse, error) {
+	out := new(DestroyTopicResponse)
+	err := c.cc.Invoke(ctx, "/MqServer.MqServerCall/DestroyTopic", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mqServerCallClient) ManagePartition(ctx context.Context, in *ManagePartitionRequest, opts ...grpc.CallOption) (*ManagePartitionResponse, error) {
+	out := new(ManagePartitionResponse)
+	err := c.cc.Invoke(ctx, "/MqServer.MqServerCall/ManagePartition", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mqServerCallClient) UnRegisterConsumer(ctx context.Context, in *UnRegisterConsumerRequest, opts ...grpc.CallOption) (*UnRegisterConsumerResponse, error) {
+	out := new(UnRegisterConsumerResponse)
+	err := c.cc.Invoke(ctx, "/MqServer.MqServerCall/UnRegisterConsumer", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mqServerCallClient) UnRegisterProducer(ctx context.Context, in *UnRegisterProducerRequest, opts ...grpc.CallOption) (*UnRegisterProducerResponse, error) {
+	out := new(UnRegisterProducerResponse)
+	err := c.cc.Invoke(ctx, "/MqServer.MqServerCall/UnRegisterProducer", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mqServerCallClient) Heartbeat(ctx context.Context, in *Ack, opts ...grpc.CallOption) (*Response, error) {
+	out := new(Response)
+	err := c.cc.Invoke(ctx, "/MqServer.MqServerCall/Heartbeat", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -83,25 +149,28 @@ func (c *mqServerCallClient) PushMessage(ctx context.Context, in *PushMessageReq
 	return out, nil
 }
 
-func (c *mqServerCallClient) UpdateMetadata(ctx context.Context, in *UpdateMetadataRequest, opts ...grpc.CallOption) (*UpdateMetadataResponse, error) {
-	out := new(UpdateMetadataResponse)
-	err := c.cc.Invoke(ctx, "/MqServer.MqServerCall/UpdateMetadata", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // MqServerCallServer is the server API for MqServerCall service.
 // All implementations must embed UnimplementedMqServerCallServer
 // for forward compatibility
 type MqServerCallServer interface {
-	Heartbeat(context.Context, *Ack) (*Response, error)
+	// 注册消费者
 	RegisterConsumer(context.Context, *RegisterConsumerRequest) (*RegisterConsumerResponse, error)
+	// 注册生产者
 	RegisterProducer(context.Context, *RegisterProducerRequest) (*RegisterProducerResponse, error)
+	// 创建话题
+	CreateTopic(context.Context, *CreateTopicRequest) (*CreateTopicResponse, error)
+	QueryTopic(context.Context, *QueryTopicRequest) (*QueryTopicResponse, error)
+	DestroyTopic(context.Context, *DestroyTopicRequest) (*DestroyTopicResponse, error)
+	ManagePartition(context.Context, *ManagePartitionRequest) (*ManagePartitionResponse, error)
+	// 注销
+	UnRegisterConsumer(context.Context, *UnRegisterConsumerRequest) (*UnRegisterConsumerResponse, error)
+	UnRegisterProducer(context.Context, *UnRegisterProducerRequest) (*UnRegisterProducerResponse, error)
+	// 客户端和server之间的心跳
+	Heartbeat(context.Context, *Ack) (*Response, error)
+	// 拉取消息
 	PullMessage(context.Context, *PullMessageRequest) (*PullMessageResponse, error)
+	// 推送消息
 	PushMessage(context.Context, *PushMessageRequest) (*PushMessageResponse, error)
-	UpdateMetadata(context.Context, *UpdateMetadataRequest) (*UpdateMetadataResponse, error)
 	mustEmbedUnimplementedMqServerCallServer()
 }
 
@@ -109,23 +178,38 @@ type MqServerCallServer interface {
 type UnimplementedMqServerCallServer struct {
 }
 
-func (UnimplementedMqServerCallServer) Heartbeat(context.Context, *Ack) (*Response, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Heartbeat not implemented")
-}
 func (UnimplementedMqServerCallServer) RegisterConsumer(context.Context, *RegisterConsumerRequest) (*RegisterConsumerResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RegisterConsumer not implemented")
 }
 func (UnimplementedMqServerCallServer) RegisterProducer(context.Context, *RegisterProducerRequest) (*RegisterProducerResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RegisterProducer not implemented")
 }
+func (UnimplementedMqServerCallServer) CreateTopic(context.Context, *CreateTopicRequest) (*CreateTopicResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateTopic not implemented")
+}
+func (UnimplementedMqServerCallServer) QueryTopic(context.Context, *QueryTopicRequest) (*QueryTopicResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryTopic not implemented")
+}
+func (UnimplementedMqServerCallServer) DestroyTopic(context.Context, *DestroyTopicRequest) (*DestroyTopicResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DestroyTopic not implemented")
+}
+func (UnimplementedMqServerCallServer) ManagePartition(context.Context, *ManagePartitionRequest) (*ManagePartitionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ManagePartition not implemented")
+}
+func (UnimplementedMqServerCallServer) UnRegisterConsumer(context.Context, *UnRegisterConsumerRequest) (*UnRegisterConsumerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UnRegisterConsumer not implemented")
+}
+func (UnimplementedMqServerCallServer) UnRegisterProducer(context.Context, *UnRegisterProducerRequest) (*UnRegisterProducerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UnRegisterProducer not implemented")
+}
+func (UnimplementedMqServerCallServer) Heartbeat(context.Context, *Ack) (*Response, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Heartbeat not implemented")
+}
 func (UnimplementedMqServerCallServer) PullMessage(context.Context, *PullMessageRequest) (*PullMessageResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PullMessage not implemented")
 }
 func (UnimplementedMqServerCallServer) PushMessage(context.Context, *PushMessageRequest) (*PushMessageResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PushMessage not implemented")
-}
-func (UnimplementedMqServerCallServer) UpdateMetadata(context.Context, *UpdateMetadataRequest) (*UpdateMetadataResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method UpdateMetadata not implemented")
 }
 func (UnimplementedMqServerCallServer) mustEmbedUnimplementedMqServerCallServer() {}
 
@@ -138,24 +222,6 @@ type UnsafeMqServerCallServer interface {
 
 func RegisterMqServerCallServer(s grpc.ServiceRegistrar, srv MqServerCallServer) {
 	s.RegisterService(&MqServerCall_ServiceDesc, srv)
-}
-
-func _MqServerCall_Heartbeat_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Ack)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MqServerCallServer).Heartbeat(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/MqServer.MqServerCall/Heartbeat",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MqServerCallServer).Heartbeat(ctx, req.(*Ack))
-	}
-	return interceptor(ctx, in, info, handler)
 }
 
 func _MqServerCall_RegisterConsumer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -190,6 +256,132 @@ func _MqServerCall_RegisterProducer_Handler(srv interface{}, ctx context.Context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MqServerCallServer).RegisterProducer(ctx, req.(*RegisterProducerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MqServerCall_CreateTopic_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateTopicRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MqServerCallServer).CreateTopic(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/MqServer.MqServerCall/CreateTopic",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MqServerCallServer).CreateTopic(ctx, req.(*CreateTopicRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MqServerCall_QueryTopic_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryTopicRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MqServerCallServer).QueryTopic(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/MqServer.MqServerCall/QueryTopic",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MqServerCallServer).QueryTopic(ctx, req.(*QueryTopicRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MqServerCall_DestroyTopic_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DestroyTopicRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MqServerCallServer).DestroyTopic(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/MqServer.MqServerCall/DestroyTopic",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MqServerCallServer).DestroyTopic(ctx, req.(*DestroyTopicRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MqServerCall_ManagePartition_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ManagePartitionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MqServerCallServer).ManagePartition(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/MqServer.MqServerCall/ManagePartition",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MqServerCallServer).ManagePartition(ctx, req.(*ManagePartitionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MqServerCall_UnRegisterConsumer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnRegisterConsumerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MqServerCallServer).UnRegisterConsumer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/MqServer.MqServerCall/UnRegisterConsumer",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MqServerCallServer).UnRegisterConsumer(ctx, req.(*UnRegisterConsumerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MqServerCall_UnRegisterProducer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnRegisterProducerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MqServerCallServer).UnRegisterProducer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/MqServer.MqServerCall/UnRegisterProducer",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MqServerCallServer).UnRegisterProducer(ctx, req.(*UnRegisterProducerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MqServerCall_Heartbeat_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Ack)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MqServerCallServer).Heartbeat(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/MqServer.MqServerCall/Heartbeat",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MqServerCallServer).Heartbeat(ctx, req.(*Ack))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -230,24 +422,6 @@ func _MqServerCall_PushMessage_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MqServerCall_UpdateMetadata_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UpdateMetadataRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MqServerCallServer).UpdateMetadata(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/MqServer.MqServerCall/UpdateMetadata",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MqServerCallServer).UpdateMetadata(ctx, req.(*UpdateMetadataRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 // MqServerCall_ServiceDesc is the grpc.ServiceDesc for MqServerCall service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -255,10 +429,6 @@ var MqServerCall_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "MqServer.MqServerCall",
 	HandlerType: (*MqServerCallServer)(nil),
 	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "Heartbeat",
-			Handler:    _MqServerCall_Heartbeat_Handler,
-		},
 		{
 			MethodName: "RegisterConsumer",
 			Handler:    _MqServerCall_RegisterConsumer_Handler,
@@ -268,16 +438,40 @@ var MqServerCall_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MqServerCall_RegisterProducer_Handler,
 		},
 		{
+			MethodName: "CreateTopic",
+			Handler:    _MqServerCall_CreateTopic_Handler,
+		},
+		{
+			MethodName: "QueryTopic",
+			Handler:    _MqServerCall_QueryTopic_Handler,
+		},
+		{
+			MethodName: "DestroyTopic",
+			Handler:    _MqServerCall_DestroyTopic_Handler,
+		},
+		{
+			MethodName: "ManagePartition",
+			Handler:    _MqServerCall_ManagePartition_Handler,
+		},
+		{
+			MethodName: "UnRegisterConsumer",
+			Handler:    _MqServerCall_UnRegisterConsumer_Handler,
+		},
+		{
+			MethodName: "UnRegisterProducer",
+			Handler:    _MqServerCall_UnRegisterProducer_Handler,
+		},
+		{
+			MethodName: "Heartbeat",
+			Handler:    _MqServerCall_Heartbeat_Handler,
+		},
+		{
 			MethodName: "PullMessage",
 			Handler:    _MqServerCall_PullMessage_Handler,
 		},
 		{
 			MethodName: "PushMessage",
 			Handler:    _MqServerCall_PushMessage_Handler,
-		},
-		{
-			MethodName: "UpdateMetadata",
-			Handler:    _MqServerCall_UpdateMetadata_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

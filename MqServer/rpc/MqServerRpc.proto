@@ -3,125 +3,172 @@ syntax = "proto3";
 package MqServer;
 option go_package = ".";
 
-message Account {
-  enum Mode {
-    root = 0;
-    normal = 1;
+service MqServerCall {
+  // 注册消费者
+  rpc RegisterConsumer(RegisterConsumerRequest) returns (RegisterConsumerResponse) {}
+  // 注册生产者
+  rpc RegisterProducer(RegisterProducerRequest) returns (RegisterProducerResponse) {}
+  // 创建话题
+  rpc CreateTopic(CreateTopicRequest) returns (CreateTopicResponse) {}
+  rpc QueryTopic(QueryTopicRequest) returns (QueryTopicResponse) {}
+  rpc DestroyTopic(DestroyTopicRequest) returns (DestroyTopicResponse) {}
+  rpc ManagePartition(ManagePartitionRequest) returns (ManagePartitionResponse) {}
+  // 注销
+  rpc UnRegisterConsumer(UnRegisterConsumerRequest) returns (UnRegisterConsumerResponse) {}
+  rpc UnRegisterProducer(UnRegisterProducerRequest) returns (UnRegisterProducerResponse) {}
+
+  // 客户端和server之间的心跳
+  rpc Heartbeat(Ack) returns (Response) {}
+  // 拉取消息
+  rpc PullMessage(PullMessageRequest) returns (PullMessageResponse) {}
+  // 推送消息
+  rpc PushMessage(PushMessageRequest) returns (PushMessageResponse) {}
+  // 拉取元数据
+  //  rpc UpdateMetadata(UpdateMetadataRequest) returns (UpdateMetadataResponse)
+  //  {}
+}
+
+// 凭证/通过这个找到对应的Consumer
+message Credentials {
+  enum CredentialsIdentity {
+    Consumer = 0;
+    Producer = 1;
+    Broker = 2;
   }
-  string Name = 1;
-  string Password = 2;
-}
-
-message Request {
-  Account _ = 2;
-  int64 Id = 1;
-}
-
-message Message {
-  bytes data = 1;
-  string timestamp = 2;
-}
-
-message Response {
-  enum ResponseMode {
-    Success = 0;
-    Failure = 1;
-    MetadataUpdate = 2;
-    PeerNoFind = 3;
-    Timeout = 4;
-  }
-  ResponseMode mode = 1;
-}
-
-message RegisterConsumerRequest {
-  Request _ = 10;
-  string Topic = 1;
-  string Partition = 2;
-  string GroupId = 3;
-  int32 MaxPullRecords = 4;
-  int32 Session_ms = 5;
-}
-
-message RegisterConsumerResponse {
-  Response _ = 1;
-  int64 Id = 2;
-  string Topic = 3;
-  string Partition = 4;
+  CredentialsIdentity Identity = 1;
+  uint32 Id = 2;
+  int64 Hash = 3;
 }
 
 message Ack {
-  Account _ = 2;
-  int64 offset = 1;
+  Credentials credential = 1;
+  // Consumer's receive message offset
+  optional int32 offset = 2;
 }
 
-message PullMessageRequest {
-  Request _ = 1;
-  string Topic = 2;
-  string Partition = 3;
+message Response {
+  enum Mode {
+    Success = 0;
+    Failure = 1;
+    ErrTimeout = 8;
+    ErrNotLeader = 7;
+    ErrSourceNotExist = 2;
+    ErrSourceAlreadyExist = 6;
+    ErrPartitionChanged = 3;
+    ErrRequestIllegal = 4;
+    ErrSourceNotEnough = 5;
+  }
+  Mode mode = 1;
 }
 
-message PushMessageRequest {
-  Request _ = 1;
-  repeated Message message = 2;
+message RegisterConsumerRequest {
+  enum OffsetReset {
+    Earliest = 0;
+    Latest = 1;
+    None = 2;
+  }
+  string FocalTopic = 1;
+  // empty for all
+  repeated string FocalPartitions = 2;
+  int32 MaxReturnMessageSize = 3;
+  int32 timeoutSessionMsec = 4;
+  OffsetReset OffsetResetMode = 5;
 }
 
-message PullMessageResponse {
-  Response _ = 1;
-  repeated Message message = 2;
-}
-
-message PushMessageResponse { Response _ = 1; }
-
-message RegisterProducerRequest {
-  Request _ = 1;
-  string Topic = 2;
-  bool Copyable = 3;
-  int32 CopyNumber = 4;
-}
-
-message RegisterProducerResponse {
-  Response _ = 1;
-  int64 Id = 2;
-}
-
-message UpdateMetadataRequest {
-  Request _ = 1;
-  int32 MetadataTerm = 2;
-}
-
-message Tp {
+message Partition {
   string Topic = 1;
-  string Partition = 2;
+  string Name = 2;
   string Url = 3;
 }
 
-message ClientFocusInfo { repeated Tp Tps = 1; }
+message RegisterConsumerResponse {
+  Response response = 1;
+  Credentials Credential = 2;
+  repeated Partition FocalPartitions = 3;
+}
 
-// 是 针对 某个Id(C/P) 进行的 元数据查询
-message UpdateMetadataResponse {
-  Response _ = 1;
-  ClientFocusInfo Info = 2;
-  int32 MetadataTerm = 3;
+message RegisterProducerRequest {
+  string FocalTopic = 1;
+//  int32 TimeoutSessionMsec = 2;
+  int32 MaxPushMessageSize = 3;
 }
-message UnRegisterConsumerResponse {}
-message UnRegisterConsumerRequest {
-  Request _ = 1;
+
+message RegisterProducerResponse {
+  Response response = 1;
+  Credentials Credential = 2;
+  repeated Partition FocalPartitions = 3;
+  int32 AllowPushMessageSize = 4;
+  int32 AllowPushMessageCount = 5;
 }
-message UnRegisterProducerRequest {
-  Request _ = 1;
+
+message CreateTopicRequest {
+  string Topic = 1;
+  message PartitionCreateDetails {
+    string PartitionName = 1;
+    int32 ReplicationNumber = 2;
+  }
+  repeated PartitionCreateDetails Partition = 3;
 }
-message UnRegisterProducerResponse {}
-service MqServerCall {
-  rpc Heartbeat(Ack) returns (Response) {}
-  rpc RegisterConsumer(RegisterConsumerRequest)
-      returns (RegisterConsumerResponse) {}
-  rpc RegisterProducer(RegisterProducerRequest)
-      returns (RegisterProducerResponse) {}
-  rpc UnRegisterConsumer(UnRegisterConsumerRequest)
-      returns (UnRegisterConsumerResponse) {}
-  rpc UnRegisterProducer(UnRegisterProducerRequest)
-      returns (UnRegisterProducerResponse) {}
-  rpc PullMessage(PullMessageRequest) returns (PullMessageResponse) {}
-  rpc PushMessage(PushMessageRequest) returns (PushMessageResponse) {}
-  rpc UpdateMetadata(UpdateMetadataRequest) returns (UpdateMetadataResponse) {}
+
+message CreateTopicResponse {
+  Response response = 1;
+  repeated Partition PartitionDetails = 2;
+}
+
+message QueryTopicRequest {
+  Credentials credential = 2;
+  string Topic = 1;
+}
+
+message QueryTopicResponse {
+  Response response = 1;
+  repeated Partition PartitionDetails = 2;
+}
+
+message DestroyTopicRequest {string Topic = 1;}
+
+message DestroyTopicResponse {Response response = 1;}
+
+message UnRegisterConsumerRequest {Credentials credential = 1;}
+
+message UnRegisterConsumerResponse {Response response = 1;}
+
+message UnRegisterProducerRequest {Credentials credential = 1;}
+
+message UnRegisterProducerResponse {Response response = 1;}
+
+message Message {string Message = 1;}
+
+message PushMessageRequest {
+  Credentials credential = 1;
+  repeated Message Msgs = 2;
+}
+
+message PushMessageResponse {Response response = 1;}
+
+message PullMessageRequest {Ack _ = 1;
+  int32 WindowSize = 2;
+}
+
+message PullMessageResponse {
+  Response response = 1;
+  repeated Message Msgs = 2;
+}
+
+message ManagePartitionRequest {
+  string Topic = 1;
+  enum ManageModes {
+    Add = 0;
+    Del = 1;
+    Follow = 2;
+    UnFollow = 3;
+  }
+  ManageModes ManageMode = 2;
+  optional Credentials Credential = 3;
+  string TargetPartitionName = 4;
+}
+
+message ManagePartitionResponse {
+  Response response = 1;
+  repeated Partition NowPartitions = 2;
 }

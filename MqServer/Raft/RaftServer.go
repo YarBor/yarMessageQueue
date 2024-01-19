@@ -26,14 +26,6 @@ var (
 	isRaftAddrSet  int32 = 0
 )
 
-type RaftNode struct {
-	rf    *Raft
-	T     string
-	P     string
-	Peers []*Net.ClientEnd
-	me    int
-}
-
 type RaftServer struct {
 	pb.UnimplementedRaftCallServer
 	mu           sync.RWMutex
@@ -165,40 +157,32 @@ func (rs *RaftServer) RequestVote(_ context.Context, arg *pb.RequestVoteRequest)
 	return rpl, nil
 }
 
-func (rn *RaftNode) LinkPeerRpcServer(addr string) (*Net.ClientEnd, error) {
-	conn, err := grpc.Dial(addr, grpc.WithInsecure())
-	if err != nil {
-		panic(err.Error())
-	}
-	res := &Net.ClientEnd{
-		RaftCallClient: pb.NewRaftCallClient(conn),
-		Rfn:            rn,
-		Conn:           conn,
-	}
-	return res, nil
-}
-
 // url包含自己
-func (rs *RaftServer) RegisterRfNode(T, P string, NodesUrl []string, ch chan ApplyMsg) error {
+func (rs *RaftServer) RegisterRfNode(T, P string, NodesUrl []string, ch CammandHandler, sh SnapshotHandler) (*RaftNode, error) {
 	if T == "" || P == "" {
-		return errors.New(UnKnownTopicPartition)
+		return nil, errors.New(UnKnownTopicPartition)
 	}
 	rn := RaftNode{
-		T:     T,
-		P:     P,
-		Peers: make([]*Net.ClientEnd, len(NodesUrl)),
+		rf:              nil,
+		T:               T,
+		P:               P,
+		Peers:           make([]*Net.ClientEnd, len(NodesUrl)),
+		me:              0,
+		ch:              make(chan ApplyMsg),
+		Persistent:      Persister.MakePersister(),
+		commandOffset:   0,
+		CommandHandler:  ch,
+		SnapshotHandler: sh,
 	}
-	selfIndex := -1
 	for i, n := range NodesUrl {
 		if n == raftListenAddr {
-			selfIndex = i
-			continue
+			rn.me = i
 		} else {
 			peer, _ := rn.LinkPeerRpcServer(n)
 			rn.Peers[i] = peer
 		}
 	}
-	if selfIndex == -1 {
+	if rn.me == -1 {
 		panic("register node failed")
 	}
 	rs.mu.Lock()
@@ -208,8 +192,8 @@ func (rs *RaftServer) RegisterRfNode(T, P string, NodesUrl []string, ch chan App
 	}
 	rs.rfs[T][P] = &rn
 	rs.mu.Unlock()
-	rn.rf = Make(rn.Peers, selfIndex, Persister.MakePersister(), ch)
-	return nil
+
+	return &rn, nil
 }
 
 func SetRaftListenAddr(addr string) bool {
@@ -241,7 +225,7 @@ func MakeRaftServer() (*RaftServer, error) {
 	return res, nil
 }
 
-func (rs *RaftServer) RegisterMetadataRaft(urls []string, ch chan ApplyMsg) error {
+func (rs *RaftServer) RegisterMetadataRaft(urls []string, ch chan ApplyMsg) (*RaftNode, error) {
 	T, P := "", ""
 	rn := RaftNode{
 		T:     T,
@@ -256,6 +240,7 @@ func (rs *RaftServer) RegisterMetadataRaft(urls []string, ch chan ApplyMsg) erro
 		} else {
 			peer, _ := rn.LinkPeerRpcServer(n)
 			rn.Peers[i] = peer
+			rn.Peers[i].Rfn = &rn
 		}
 	}
 	if selfIndex == -1 {
@@ -269,7 +254,8 @@ func (rs *RaftServer) RegisterMetadataRaft(urls []string, ch chan ApplyMsg) erro
 	rs.rfs[T][P] = &rn
 	rs.mu.Unlock()
 	rn.rf = Make(rn.Peers, selfIndex, Persister.MakePersister(), ch)
-	return nil
+	rs.metadataRaft = rn.rf
+	return &rn, nil
 }
 
 func (rs *RaftServer) Stop() {
@@ -282,10 +268,7 @@ func (rs *RaftServer) Stop() {
 		}
 	}
 	for _, node := range rfnode {
-		node.rf.Kill()
-		for _, r := range node.Peers {
-			r.Conn.Close()
-		}
+		node.Stop()
 	}
 	rs.server.Stop()
 	rs.metadataRaft = nil

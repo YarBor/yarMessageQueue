@@ -2,125 +2,90 @@ package MqServer
 
 import (
 	"MqServer/Raft"
-	"MqServer/Random"
 	pb "MqServer/rpc"
-	"errors"
-	"google.golang.org/grpc"
-	"net"
-	"sync"
+	"context"
 )
-
-type Producer struct {
-	Account pb.Account
-	Topic   string
-}
-
-type Consumer struct {
-	Account   pb.Account
-	Topic     string
-	Partition string
-}
-
-type Broker struct {
-	Id         string
-	ServiceUrl string
-	RaftUrl    string
-}
-
-type MqServer struct {
-	lis net.Listener
-	mu  sync.RWMutex
-	MqServerInfo
-	raftServer      *Raft.RaftServer
-	server          *grpc.Server
-	metadataHandler *MetadataHandler
-	pb.UnimplementedMqServerCallServer
-}
-
-func (s *MqServer) IsMultipleClusters() bool {
-	return len(s.clustersInfo) == 0 && s.RaftUrl != ""
-}
-
-func (s *MqServer) Serve() error {
-	if s.IsMultipleClusters() {
-		err := s.raftServer.Serve()
-		if err != nil {
-			return err
-		}
-		urls := make([]string, len(s.clustersInfo)+1)
-		for i := range s.clustersInfo {
-			urls[i] = s.clustersInfo[i].RaftUrl
-		}
-		urls[len(urls)-1] = s.RaftUrl
-		err = s.raftServer.RegisterMetadataRaft(urls, s.metadataHandler.RaftApplyChan)
-		if err != nil {
-			return err
-		}
-	}
-	err := s.server.Serve(s.lis)
-	if err != nil {
-		s.raftServer.Stop()
-		return err
-	}
-	s.stat = ServerStatWorking
-	return nil
-}
-
-func (s *MqServer) Stop() {
-	s.stat = ServerStatStop
-	s.metadataHandler.Stop()
-	s.server.Stop()
-	s.raftServer.Stop()
-}
 
 type Server interface {
 	Serve() error
-	Stop()
+	Stop() error
 }
 
-const (
-	NotSetServerListenAddr = "NotSetServerListenAddr"
-)
+type ServerImpl struct {
+	pb.UnimplementedMqServerCallServer
+	RaftServer         Raft.RaftServer
+	MetaDataController MetaDataController
+}
 
-func MakeMqServer(options ...Option) (Server, error) {
-	s := &MqServer{
-		MqServerInfo: MqServerInfo{
-			stat:         ServerStatIniting,
-			Name:         "",
-			SelfUrl:      "",
-			RaftUrl:      "",
-			clustersInfo: make([]MqServerInfo, 0),
-		},
-		raftServer:                      nil,
-		server:                          nil,
-		metadataHandler:                 MakeMetadataHandler(),
-		UnimplementedMqServerCallServer: pb.UnimplementedMqServerCallServer{},
-	}
+// 客户端和server之间的心跳
 
-	for _, option := range options {
-		option(&s.MqServerInfo)
-	}
+// 注册消费者
+func (s *ServerImpl) RegisterConsumer(context.Context, *pb.RegisterConsumerRequest) (*pb.RegisterConsumerResponse, error) {
+}
 
-	if s.SelfUrl == "" {
-		return nil, errors.New(NotSetServerListenAddr)
-	}
-	if s.Name == "" {
-		s.Name = Random.RandStringBytes(16)
-	}
-	if s.IsMultipleClusters() {
-		Raft.SetRaftListenAddr(s.MqServerInfo.RaftUrl)
-		if server, err := Raft.MakeRaftServer(); err != nil {
+// 注册生产者
+func (s *ServerImpl) RegisterProducer(ctx context.Context, req *pb.RegisterProducerRequest) (*pb.RegisterProducerResponse, error) {
+	if err := s.MetaDataController.RegisterProducer(req); err != nil {
+		if err.Error() == Raft.ErrNotLeader {
 			return nil, err
-		} else {
-			s.raftServer = server
 		}
 	}
-	if lis, err := net.Listen("tcp", s.MqServerInfo.SelfUrl); err != nil {
-		return nil, err
-	} else {
-		s.lis = lis
-		s.server = grpc.NewServer()
-		pb.RegisterMqServerCallServer(s.server, s)
-	}
-	return Server(s), nil
+}
+
+// 创建话题
+func (s *ServerImpl) CreateTopic(context.Context, *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+}
+func (s *ServerImpl) QueryTopic(context.Context, *pb.QueryTopicRequest) (*pb.QueryTopicResponse, error) {
+}
+func (s *ServerImpl) DestroyTopic(context.Context, *pb.DestroyTopicRequest) (*pb.DestroyTopicResponse, error) {
+}
+func (s *ServerImpl) ManagePartition(context.Context, *pb.ManagePartitionRequest) (*pb.ManagePartitionResponse, error) {
+}
+
+// 注销
+func (s *ServerImpl) UnRegisterConsumer(context.Context, *pb.UnRegisterConsumerRequest) (*pb.UnRegisterConsumerResponse, error) {
+}
+
+func (s *ServerImpl) UnRegisterProducer(context.Context, *pb.UnRegisterProducerRequest) (*pb.UnRegisterProducerResponse, error) {
+}
+
+// 拉取消息
+func (s *ServerImpl) PullMessage(context.Context, *pb.PullMessageRequest) (*pb.PullMessageResponse, error) {
+}
+
+// 推送消息
+func (s *ServerImpl) PushMessage(context.Context, *pb.PushMessageRequest) (*pb.PushMessageResponse, error) {
+}
+
+func (s *ServerImpl) Heartbeat(context.Context, *pb.Ack) (*pb.Response, error) {
+}
+
+ 
+func ErrResponse_Failure() *pb.Response {
+	return &pb.Response{ Mode : pb.Response_Failure}
+}
+func ErrResponse_ErrTimeout() *pb.Response {
+	return &pb.Response{ Mode : pb.Response_ErrTimeout}
+}
+func ErrResponse_ErrNotLeader() *pb.Response {
+	return &pb.Response{ Mode : pb.Response_ErrNotLeader}
+}
+func ErrResponse_ErrSourceNotExist() *pb.Response {
+	return &pb.Response{ Mode : pb.Response_ErrSourceNotExist}
+}
+func ErrResponse_ErrSourceAlreadyExist() *pb.Response {
+	return &pb.Response{ Mode : pb.Response_ErrSourceAlreadyExist}
+}
+func ErrResponse_ErrPartitionChanged() *pb.Response {
+	return &pb.Response{ Mode : pb.Response_ErrPartitionChanged}
+}
+func ErrResponse_ErrRequestIllegal() *pb.Response {
+	return &pb.Response{ Mode : pb.Response_ErrRequestIllegal}
+}
+func ErrResponse_ErrSourceNotEnough() *pb.Response {
+	return &pb.Response{ Mode : pb.Response_ErrSourceNotEnough}
+}
+
+func ResponseSuccess() *pb.Response {
+	return &pb.Response{ Mode : pb.Response_Success }
 }

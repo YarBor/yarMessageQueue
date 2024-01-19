@@ -187,6 +187,9 @@ func (R *RaftPeer) isTimeOut() bool {
 	return time.Now().UnixMicro()-atomic.LoadInt64(&R.lastTalkTime) > (HeartbeatTimeout * 3 / 2).Microseconds()
 }
 func (rf *Raft) checkOutLeaderOnline() bool {
+	if rf.level != LevelLeader {
+		return false
+	}
 	Len := len(rf.raftPeers)
 	count := 1
 	for i := range rf.raftPeers {
@@ -1201,6 +1204,13 @@ func (rf *Raft) updateMsgs(msg []*LogData) *LogData {
 
 	// }
 	return i
+}
+
+func (rf *Raft) IsLeader() bool {
+	if rf.getLevel() == LevelLeader && rf.checkOutLeaderOnline() {
+		return true
+	}
+	return false
 }
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	defer rf.checkFuncDone("Start")()
