@@ -37,7 +37,7 @@ message Credentials {
   }
   CredentialsIdentity Identity = 1;
   uint32 Id = 2;
-  int64 Hash = 3;
+  string Key = 3;
 }
 
 message Ack {
@@ -50,6 +50,7 @@ message Response {
   enum Mode {
     Success = 0;
     Failure = 1;
+    NotServe = 9 ;
     ErrTimeout = 8;
     ErrNotLeader = 7;
     ErrSourceNotExist = 2;
@@ -78,7 +79,7 @@ message RegisterConsumerRequest {
 message Partition {
   string Topic = 1;
   string Name = 2;
-  string Url = 3;
+  repeated string Urls = 3;
 }
 
 message RegisterConsumerResponse {
@@ -89,7 +90,7 @@ message RegisterConsumerResponse {
 
 message RegisterProducerRequest {
   string FocalTopic = 1;
-//  int32 TimeoutSessionMsec = 2;
+  //  int32 TimeoutSessionMsec = 2;
   int32 MaxPushMessageSize = 3;
 }
 

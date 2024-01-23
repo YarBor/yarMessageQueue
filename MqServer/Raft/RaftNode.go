@@ -115,7 +115,7 @@ func (rn *RaftNode) GetNewCommandId() uint32 {
 }
 
 func (rn *RaftNode) Commit(command interface{}) error {
-	if rn.rf == nil {
+	if rn.rf == nil || rn.rf.killed() {
 		return errors.New(ErrNodeDidNotStart)
 	}
 	if !rn.rf.IsLeader() {
@@ -129,6 +129,11 @@ func (rn *RaftNode) Commit(command interface{}) error {
 	rn.idMap.Add(entry.Id, func() {
 		ch <- struct{}{}
 	})
+	_, _, ok := rn.rf.Start(entry)
+	if !ok {
+		rn.idMap.Delete(entry.Id)
+		return errors.New(ErrNotLeader)
+	}
 	select {
 	case <-time.After(commitTimeout):
 		rn.idMap.Delete(entry.Id)
@@ -169,4 +174,6 @@ func (rn *RaftNode) CommandHandleFunc() {
 
 func (rn *RaftNode) Start() {
 	rn.rf = Make(rn.Peers, rn.me, Persister.MakePersister(), rn.ch)
+	rn.wg.Add(1)
+	go rn.CommandHandleFunc()
 }

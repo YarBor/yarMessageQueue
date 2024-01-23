@@ -1665,20 +1665,20 @@ func Make(peers []*labrpc.ClientEnd, me int, persister *Persister.Persister, app
 	//rf.DebugLoger.SetFlags(log.Lmicroseconds)
 	// Your initialization code here (2A, 2B, 2C).
 	// initialize from state persisted before a crash
+	// wait for call rf.Serve()
+	//<-rf.startChan
+	for i := range rf.peers {
+		rf.raftPeers[i] = RaftPeer{C: rf.peers[i], SendHeartBeat: make(chan struct{}), JumpHeartBeat: make(chan struct{}, 1), BeginHeartBeat: make(chan struct{}), StopHeartBeat: make(chan struct{})}
+		rf.raftPeers[i].modeLock = sync.Mutex{}
+		if i != rf.me {
+			rf.wg.Add(1)
+			go rf.registeHeartBeat(i)
+		}
+	}
+
 	rf.wg.Add(1)
 	go func() {
 		defer rf.wg.Done()
-		// wait for call rf.Serve()
-		//<-rf.startChan
-		for i := range rf.peers {
-			rf.raftPeers[i] = RaftPeer{C: rf.peers[i], SendHeartBeat: make(chan struct{}), JumpHeartBeat: make(chan struct{}, 1), BeginHeartBeat: make(chan struct{}), StopHeartBeat: make(chan struct{})}
-			rf.raftPeers[i].modeLock = sync.Mutex{}
-			if i != rf.me {
-				rf.wg.Add(1)
-				go rf.registeHeartBeat(i)
-			}
-		}
-
 		rf.readPersist(persister.ReadRaftState())
 		// start ticker goroutine to start elections
 		rf.commandLog.MsgRwMu.RLock()
