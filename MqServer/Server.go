@@ -11,24 +11,28 @@ type Server interface {
 	Serve() error
 	Stop() error
 }
-type ServerConn struct {
+type ServerClient struct {
 	pb.RaftCallClient
 	Conn *grpc.ClientConn
 }
 
 type ServerImpl struct {
 	pb.UnimplementedMqServerCallServer
-	RaftServer         Raft.RaftServer
-	ID                 string
-	Key                string
-	Conns              map[string]*ServerConn
-	MetaDataController MetaDataController
+	RaftServer           Raft.RaftServer
+	Url                  string
+	ID                   string
+	Key                  string
+	Conns                map[string]*ServerClient
+	MetadataLeader       *ServerClient
+	MetaDataController   MetaDataController
+	PartitionsController PartitionsController
 }
 
 // 客户端和server之间的心跳
 
 // 注册消费者
 func (s *ServerImpl) RegisterConsumer(context.Context, *pb.RegisterConsumerRequest) (*pb.RegisterConsumerResponse, error) {
+
 }
 
 // 注册生产者
@@ -46,6 +50,7 @@ func (s *ServerImpl) CreateTopic(_ context.Context, req *pb.CreateTopicRequest) 
 	if res == nil {
 		panic(res)
 	}
+	return res, nil
 }
 func (s *ServerImpl) QueryTopic(context.Context, *pb.QueryTopicRequest) (*pb.QueryTopicResponse, error) {
 }

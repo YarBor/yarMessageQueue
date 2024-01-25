@@ -1757,7 +1757,7 @@ func (rf *Raft) committer(applyCh chan ApplyMsg) {
 			return
 		case <-time.After(5 * time.Millisecond):
 			if rf.getLevel() == LevelLeader {
-				halfLenPeersCommitted := 0
+				//halfLenPeersCommitted := 0
 				for i := range rf.raftPeers {
 					if i == rf.me {
 						continue
@@ -1770,12 +1770,12 @@ func (rf *Raft) committer(applyCh chan ApplyMsg) {
 				}
 				sort.Sort(peersLogSlice(peerLogedIndexs))
 				{
-					asdf := make([]int, 0)
-					for i := range peerLogedIndexs {
-						asdf = append(asdf, int(peerLogedIndexs[i].commitIndex))
-					}
-					sort.Ints(asdf)
-					halfLenPeersCommitted = asdf[len(asdf)/2+1]
+					//asdf := make([]int, 0)
+					//for i := range peerLogedIndexs {
+					//asdf = append(asdf, int(peerLogedIndexs[i].commitIndex))
+					//}
+					//sort.Ints(asdf)
+					//halfLenPeersCommitted = asdf[len(asdf)/2+1]
 				}
 				ToLogHalfIndex := peerLogedIndexs[(len(peerLogedIndexs))/2+1]
 				_, SelfNowLastLogTerm := rf.getLastLogData()
@@ -1783,7 +1783,7 @@ func (rf *Raft) committer(applyCh chan ApplyMsg) {
 					continue
 				}
 				if ToLogHalfIndex.index > ToLogIndex {
-					ToLogIndex = int32(halfLenPeersCommitted)
+					ToLogIndex = int32(ToLogHalfIndex.index)
 					rf.Dolog(-1, "Committer: Update CommitIndex", ToLogIndex)
 					rf.justSetCommitIndex(ToLogHalfIndex.index)
 					rf.persist(rf.GetSnapshot())
