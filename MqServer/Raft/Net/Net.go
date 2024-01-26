@@ -3,7 +3,7 @@ package Net
 import (
 	"MqServer/Log"
 	"MqServer/Raft"
-	"MqServer/Raft/Gob"
+	"MqServer/Raft/Pack"
 	pb "MqServer/rpc"
 	"bytes"
 	"context"
@@ -29,7 +29,7 @@ func (c *ClientEnd) Call(fName string, args, reply interface{}) bool {
 		panic("reply translate error")
 	}
 	buff := bytes.Buffer{}
-	if err = Gob.NewEncoder(&buff).Encode(*arg); err != nil {
+	if err = Pack.NewEncoder(&buff).Encode(*arg); err != nil {
 		panic("encode error")
 	}
 
@@ -47,7 +47,7 @@ func (c *ClientEnd) Call(fName string, args, reply interface{}) bool {
 			Log.ERROR(err.Error())
 			return false
 		}
-		if err = Gob.NewDecoder(bytes.NewBuffer(i.Result)).Decode(rpl); err != nil {
+		if err = Pack.NewDecoder(bytes.NewBuffer(i.Result)).Decode(rpl); err != nil {
 			panic(err.Error())
 		}
 		break
@@ -64,7 +64,7 @@ func (c *ClientEnd) Call(fName string, args, reply interface{}) bool {
 			Log.ERROR(err.Error())
 			return false
 		}
-		if err = Gob.NewDecoder(bytes.NewBuffer(i.Result)).Decode(rpl); err != nil {
+		if err = Pack.NewDecoder(bytes.NewBuffer(i.Result)).Decode(rpl); err != nil {
 			panic(err.Error())
 		}
 		break
@@ -81,7 +81,7 @@ func (c *ClientEnd) Call(fName string, args, reply interface{}) bool {
 			Log.ERROR(err.Error())
 			return false
 		}
-		if err = Gob.NewDecoder(bytes.NewBuffer(i.Result)).Decode(rpl); err != nil {
+		if err = Pack.NewDecoder(bytes.NewBuffer(i.Result)).Decode(rpl); err != nil {
 			panic(err.Error())
 		}
 		break

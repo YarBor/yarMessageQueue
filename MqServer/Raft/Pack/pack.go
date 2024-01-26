@@ -1,4 +1,4 @@
-package Gob
+package Pack
 
 //
 // trying to send non-capitalized fields over RPC produces a range of
@@ -7,7 +7,7 @@ package Gob
 // about non-capitalized field names.
 //
 
-import "encoding/gob"
+import msgPackage "github.com/vmihailenco/msgpack/v5"
 import "io"
 import "reflect"
 import "fmt"
@@ -20,12 +20,12 @@ var errorCount int // for TestCapital
 var checked map[reflect.Type]bool
 
 type LabEncoder struct {
-	gob *gob.Encoder
+	gob *msgPackage.Encoder
 }
 
 func NewEncoder(w io.Writer) *LabEncoder {
 	enc := &LabEncoder{}
-	enc.gob = gob.NewEncoder(w)
+	enc.gob = msgPackage.NewEncoder(w)
 	return enc
 }
 
@@ -40,12 +40,12 @@ func (enc *LabEncoder) EncodeValue(value reflect.Value) error {
 }
 
 type LabDecoder struct {
-	gob *gob.Decoder
+	gob *msgPackage.Decoder
 }
 
 func NewDecoder(r io.Reader) *LabDecoder {
 	dec := &LabDecoder{}
-	dec.gob = gob.NewDecoder(r)
+	dec.gob = msgPackage.NewDecoder(r)
 	return dec
 }
 
@@ -57,12 +57,10 @@ func (dec *LabDecoder) Decode(e interface{}) error {
 
 func Register(value interface{}) {
 	checkValue(value)
-	gob.Register(value)
 }
 
 func RegisterName(name string, value interface{}) {
 	checkValue(value)
-	gob.RegisterName(name, value)
 }
 
 func checkValue(value interface{}) {

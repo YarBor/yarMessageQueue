@@ -32,8 +32,8 @@ import (
 	"time"
 
 	MyLogger "MqServer/Log"
-	labgob "MqServer/Raft/Gob"
 	labrpc "MqServer/Raft/Net"
+	labPack "MqServer/Raft/Pack"
 )
 
 func (rf *Raft) checkFuncDone(FuncName string) func() {
@@ -580,7 +580,7 @@ func (rf *Raft) persistUnsafe(snapshot *ApplyMsg) {
 	}
 
 	buffer := bytes.Buffer{}
-	encoder := labgob.NewEncoder(&buffer)
+	encoder := labPack.NewEncoder(&buffer)
 	err := encoder.Encode(rf.getCommitIndexUnsafe())
 	if err != nil {
 		log.Fatal("Failed to encode CommitIndex: ", err)
@@ -635,7 +635,7 @@ func (rf *Raft) readPersist(data []byte) {
 	}
 
 	r := bytes.NewBuffer(data)
-	d := labgob.NewDecoder(r)
+	d := labPack.NewDecoder(r)
 
 	var term int32
 	var commitedIndex int32

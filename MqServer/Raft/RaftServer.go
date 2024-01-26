@@ -2,8 +2,8 @@ package Raft
 
 import (
 	mqLog "MqServer/Log"
-	"MqServer/Raft/Gob"
 	"MqServer/Raft/Net"
+	"MqServer/Raft/Pack"
 	"MqServer/Raft/Persister"
 	pb "MqServer/rpc"
 	"bytes"
@@ -54,7 +54,7 @@ func (rs *RaftServer) HeartBeat(_ context.Context, arg *pb.HeartBeatRequest) (rp
 		rf = rfnode.rf
 	}
 	rfNodeArgs := RequestArgs{}
-	err = Gob.NewDecoder(bytes.NewBuffer(arg.Arg)).Decode(&rfNodeArgs)
+	err = Pack.NewDecoder(bytes.NewBuffer(arg.Arg)).Decode(&rfNodeArgs)
 	if err != nil {
 		mqLog.FATAL(err.Error())
 	}
@@ -62,7 +62,7 @@ func (rs *RaftServer) HeartBeat(_ context.Context, arg *pb.HeartBeatRequest) (rp
 	rf.HeartBeat(&rfNodeArgs, &rfNodeReply)
 
 	bff := bytes.Buffer{}
-	err = Gob.NewEncoder(&bff).Encode(rfNodeReply)
+	err = Pack.NewEncoder(&bff).Encode(rfNodeReply)
 	if err != nil {
 		mqLog.FATAL(err.Error())
 	}
@@ -96,7 +96,7 @@ func (rs *RaftServer) RequestPreVote(_ context.Context, arg *pb.RequestPreVoteRe
 	}
 
 	rfNodeArgs := RequestArgs{}
-	err = Gob.NewDecoder(bytes.NewBuffer(arg.Arg)).Decode(&rfNodeArgs)
+	err = Pack.NewDecoder(bytes.NewBuffer(arg.Arg)).Decode(&rfNodeArgs)
 	if err != nil {
 		mqLog.FATAL(err.Error())
 	}
@@ -104,7 +104,7 @@ func (rs *RaftServer) RequestPreVote(_ context.Context, arg *pb.RequestPreVoteRe
 	rf.RequestPreVote(&rfNodeArgs, &rfNodeReply)
 
 	bff := bytes.Buffer{}
-	err = Gob.NewEncoder(&bff).Encode(rfNodeReply)
+	err = Pack.NewEncoder(&bff).Encode(rfNodeReply)
 	if err != nil {
 		mqLog.FATAL(err.Error())
 	}
@@ -136,7 +136,7 @@ func (rs *RaftServer) RequestVote(_ context.Context, arg *pb.RequestVoteRequest)
 		rf = rfnode.rf
 	}
 	rfNodeArgs := RequestArgs{}
-	err = Gob.NewDecoder(bytes.NewBuffer(arg.Arg)).Decode(&rfNodeArgs)
+	err = Pack.NewDecoder(bytes.NewBuffer(arg.Arg)).Decode(&rfNodeArgs)
 	if err != nil {
 		mqLog.FATAL(err.Error())
 	}
@@ -144,7 +144,7 @@ func (rs *RaftServer) RequestVote(_ context.Context, arg *pb.RequestVoteRequest)
 	rf.RequestVote(&rfNodeArgs, &rfNodeReply)
 
 	bff := bytes.Buffer{}
-	err = Gob.NewEncoder(&bff).Encode(rfNodeReply)
+	err = Pack.NewEncoder(&bff).Encode(rfNodeReply)
 	if err != nil {
 		mqLog.FATAL(err.Error())
 	}
