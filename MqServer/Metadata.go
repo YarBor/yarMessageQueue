@@ -4,7 +4,6 @@ import (
 	"MqServer/Raft"
 	"MqServer/Raft/Pack"
 	pb "MqServer/rpc"
-	"bytes"
 	"errors"
 	"sort"
 	"sync"
@@ -18,6 +17,7 @@ type MetaData struct {
 	Consumers       map[uint32]*ConsumerMD
 	Producers       map[uint32]*ProducerMD
 }
+
 type CredentialsMD struct {
 	Identity pb.Credentials_CredentialsIdentity
 	Id       uint32
@@ -25,7 +25,7 @@ type CredentialsMD struct {
 type ConsumerMD struct {
 	Cred                 CredentialsMD
 	FocalTopic           string
-	FocalPartitions      []string
+	FocalPartitions      string
 	MaxReturnMessageSize int32
 	TimeoutSessionMsec   int32
 	OffsetResetMode      pb.RegisterConsumerRequest_OffsetReset
@@ -75,12 +75,11 @@ func (c *ConsumerMD) Copy() ConsumerMD {
 	a := ConsumerMD{
 		Cred:                 c.Cred,
 		FocalTopic:           c.FocalTopic,
-		FocalPartitions:      make([]string, len(c.FocalPartitions)),
+		FocalPartitions:      c.FocalPartitions,
 		MaxReturnMessageSize: c.MaxReturnMessageSize,
 		TimeoutSessionMsec:   c.TimeoutSessionMsec,
 		OffsetResetMode:      c.OffsetResetMode,
 	}
-	a.FocalPartitions = append(a.FocalPartitions, c.FocalPartitions...)
 	return a
 }
 
@@ -141,13 +140,11 @@ func (t *TopicMD) Copy() TopicMD {
 }
 
 func (md *MetaData) SnapShot() []byte {
-	buffer := bytes.Buffer{}
-	encoder := Pack.NewEncoder(&buffer)
-	err := encoder.Encode(*md)
+	bt, err := Pack.Marshal(*md)
 	if err != nil {
 		panic(err)
 	}
-	return buffer.Bytes()
+	return bt
 }
 
 const (
@@ -191,7 +188,6 @@ func ErrToResponse(err error) *pb.Response {
 }
 
 type MetadataCommand struct {
-	Id   uint32
 	Mode string
 	data interface{}
 }
@@ -337,12 +333,10 @@ func (mdc *MetaDataController) RegisterProducer(request *pb.RegisterProducerRequ
 
 }
 
-func (mdc *MetaDataController) Handle(command interface{}) {
+func (mdc *MetaDataController) Handle(command interface{}) error {
 	Cmd, ok := command.(MetadataCommand)
 	var ReturnErr error = nil
-	defer func(err *error) {
-		mdc.idMap.GetCallDelete(Cmd.Id, *err)
-	}(&ReturnErr)
+
 	if !ok {
 		panic("Not Reflect Right Variant")
 	}
@@ -380,26 +374,21 @@ func (mdc *MetaDataController) Handle(command interface{}) {
 		}
 		mdc.mu.Lock()
 		if tp, ok := mdc.MD.tpTree[data.FocalTopic]; ok {
-			tmpPar := make([]*PartitionMD, 0, len(data.FocalPartitions))
-			for _, partition := range data.FocalPartitions {
-				for _, tpp := range tp.Partitions {
-					if tpp.Name == partition {
-						tmpPar = append(tmpPar, tpp)
-						goto next1
-					}
+			var tmpPar *PartitionMD
+			for _, tpp := range tp.Partitions {
+				if tpp.Name == data.FocalPartitions {
+					tmpPar = tpp
+					goto next1
 				}
-				ReturnErr = errors.New(ErrSourceNotExist)
-				break
-			next1:
 			}
+			ReturnErr = errors.New(ErrSourceNotExist)
+		next1:
 			if ReturnErr != nil {
-				for i := range tmpPar {
-					tmpPar[i].ConsumerGroup.Consumers = append(tmpPar[i].ConsumerGroup.Consumers, &data)
-				}
-				if _, ok := mdc.MD.Consumers[data.Cred.Id]; ok {
+				if _, ok := mdc.MD.Consumers[data.Cred.Id]; !ok {
 					mdc.MD.Consumers[data.Cred.Id] = &data
+					tmpPar.ConsumerGroup.Consumers = append(tmpPar.ConsumerGroup.Consumers, &data)
 				} else {
-					panic("Ub")
+					ReturnErr = errors.New(ErrSourceAlreadyExist)
 				}
 			} else {
 			}
@@ -416,19 +405,17 @@ func (mdc *MetaDataController) Handle(command interface{}) {
 		if tp, ok := mdc.MD.tpTree[data.FocalTopic]; !ok {
 			ReturnErr = errors.New(ErrSourceNotExist)
 		} else {
-			for i2 := range data.FocalPartitions {
-				for i := range tp.Partitions {
-					if data.FocalPartitions[i2] == tp.Partitions[i].Name {
-						for i3 := range tp.Partitions[i].ConsumerGroup.Consumers {
-							if tp.Partitions[i].ConsumerGroup.Consumers[i3].Cred.Id == data.Cred.Id {
-								tp.Partitions[i].ConsumerGroup.Consumers = append(tp.Partitions[i].ConsumerGroup.Consumers[:i3], tp.Partitions[i].ConsumerGroup.Consumers[i3+1:]...)
-								goto next2
-							}
+			for tpPaIndex := range tp.Partitions {
+				if data.FocalPartitions == tp.Partitions[tpPaIndex].Name {
+					for conIndex := range tp.Partitions[tpPaIndex].ConsumerGroup.Consumers {
+						if tp.Partitions[tpPaIndex].ConsumerGroup.Consumers[conIndex].Cred.Id == data.Cred.Id {
+							tp.Partitions[tpPaIndex].ConsumerGroup.Consumers = append(tp.Partitions[tpPaIndex].ConsumerGroup.Consumers[:conIndex], tp.Partitions[tpPaIndex].ConsumerGroup.Consumers[conIndex+1:]...)
+							goto next2
 						}
 					}
 				}
 				// 不应该跑到这一步
-				panic("Ub")
+				ReturnErr = errors.New(ErrSourceNotExist)
 			next2:
 			}
 		}
@@ -472,6 +459,7 @@ func (mdc *MetaDataController) Handle(command interface{}) {
 	default:
 		panic(Cmd)
 	}
+	return ReturnErr
 }
 
 func (mdc *MetaDataController) MakeSnapshot() []byte {
@@ -481,8 +469,7 @@ func (mdc *MetaDataController) MakeSnapshot() []byte {
 }
 func (mdc *MetaDataController) LoadSnapshot(bt []byte) {
 	i := MetaData{}
-	buffer := bytes.NewBuffer(bt)
-	err := Pack.NewDecoder(buffer).Decode(&i)
+	err := Pack.Unmarshal(bt, &i)
 	if err != nil {
 		panic(err)
 	}
@@ -584,30 +571,68 @@ func (s *syncIdMap) Delete(i uint32) {
 }
 
 func (mdc *MetaDataController) commit(mode string, data interface{}) error {
-	id := mdc.idMap.GetID()
-	ch := make(chan error, 1)
-	mdc.idMap.Add(id, func(i error) {
-		ch <- i
-	})
 	err := mdc.MetaDataRaft.Commit(MetadataCommand{
-		Id:   id,
 		Mode: mode,
 		data: data,
 	})
-	if err != nil {
-		goto ERR
+	return err
+}
+
+func (mdc *MetaDataController) QueryTopic(req *pb.QueryTopicRequest) *pb.QueryTopicResponse {
+	if !mdc.IsLeader() {
+		return &pb.QueryTopicResponse{Response: ErrResponse_ErrNotLeader()}
 	}
-	return <-ch
-ERR:
-	switch err.Error() {
-	case Raft.ErrCommitTimeout:
-		return errors.New(ErrRequestTimeout)
-	case Raft.ErrNodeDidNotStart:
-		return errors.New(ErrRequestServerNotServe)
-	case Raft.ErrNotLeader:
-		return errors.New(ErrRequestNotLeader)
-	default:
-		panic(err)
+	mdc.mu.RLock()
+	res, err := mdc.MD.QueryTopic(req.Topic)
+	mdc.mu.RUnlock()
+	if err != nil {
+		return &pb.QueryTopicResponse{
+			Response: ErrToResponse(err),
+		}
+	} else {
+		ret := &pb.QueryTopicResponse{
+			Response:         ResponseSuccess(),
+			PartitionDetails: make([]*pb.Partition, 0, len(res.Partitions)),
+		}
+		if req.Credential.Identity == pb.Credentials_Producer || req.Credential.Identity == pb.Credentials_Broker {
+			for _, partition := range res.Partitions {
+				str := make([]string, 0, len(partition.BrokerGroup.Members))
+				for _, i := range partition.BrokerGroup.Members {
+					str = append(str, i.Url)
+				}
+				ret.PartitionDetails = append(ret.PartitionDetails, &pb.Partition{
+					Topic: req.Topic,
+					Name:  partition.Name,
+					Urls:  str,
+				})
+			}
+		} else if req.Credential.Identity == pb.Credentials_Consumer {
+			mdc.mu.RLock()
+			con, err := mdc.MD.QueryConsumer(req.Credential.Id)
+			mdc.mu.RUnlock()
+			if err != nil {
+				return &pb.QueryTopicResponse{Response: ErrToResponse(err)}
+			}
+			for _, partition := range res.Partitions {
+				if partition.Name == con.FocalPartitions {
+					str := make([]string, 0, len(partition.BrokerGroup.Members))
+					for _, i := range partition.BrokerGroup.Members {
+						str = append(str, i.Url)
+					}
+					ret.PartitionDetails = append(ret.PartitionDetails, &pb.Partition{
+						Topic: req.Topic,
+						Name:  partition.Name,
+						Urls:  str,
+					})
+					goto next3
+				}
+				return &pb.QueryTopicResponse{Response: ErrResponse_ErrSourceNotExist()}
+			next3:
+			}
+		} else {
+			panic("unreachable")
+		}
+		return ret
 	}
 }
 func (mdc *MetaDataController) RegisterConsumer(req *pb.RegisterConsumerRequest) *pb.RegisterConsumerResponse {
@@ -620,21 +645,19 @@ func (mdc *MetaDataController) RegisterConsumer(req *pb.RegisterConsumerRequest)
 	if err != nil {
 		return &pb.RegisterConsumerResponse{Response: ErrResponse_ErrSourceAlreadyExist()}
 	}
-	parts := make([]*pb.Partition, 0, len(req.FocalPartitions))
-	for i := range req.FocalPartitions {
-		for _, partition := range tp.Partitions {
-			if req.FocalPartitions[i] == partition.Name {
-				urls := make([]string, 0, len(partition.BrokerGroup.Members))
-				for _, m := range partition.BrokerGroup.Members {
-					urls = append(urls, m.Url)
-				}
-				parts = append(parts, &pb.Partition{
-					Topic: req.FocalTopic,
-					Name:  partition.Name,
-					Urls:  urls,
-				})
-				goto next
+	var parts *pb.Partition
+	for _, partition := range tp.Partitions {
+		if req.FocalPartitions == partition.Name {
+			urls := make([]string, 0, len(partition.BrokerGroup.Members))
+			for _, m := range partition.BrokerGroup.Members {
+				urls = append(urls, m.Url)
 			}
+			parts = &pb.Partition{
+				Topic: req.FocalTopic,
+				Name:  partition.Name,
+				Urls:  urls,
+			}
+			goto next
 		}
 		return &pb.RegisterConsumerResponse{Response: ErrResponse_ErrSourceNotExist()}
 	next:

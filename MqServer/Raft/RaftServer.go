@@ -158,7 +158,7 @@ func (rs *RaftServer) RequestVote(_ context.Context, arg *pb.RequestVoteRequest)
 }
 
 // url包含自己
-func (rs *RaftServer) RegisterRfNode(T, P string, NodesUrl []string, ch CammandHandler, sh SnapshotHandler) (*RaftNode, error) {
+func (rs *RaftServer) RegisterRfNode(T, P string, NodesUrl []string, ch CommandHandler, sh SnapshotHandler) (*RaftNode, error) {
 	if T == "" || P == "" {
 		return nil, errors.New(UnKnownTopicPartition)
 	}
@@ -170,7 +170,7 @@ func (rs *RaftServer) RegisterRfNode(T, P string, NodesUrl []string, ch CammandH
 		me:              0,
 		ch:              make(chan ApplyMsg),
 		Persistent:      Persister.MakePersister(),
-		commandOffset:   0,
+		commandIdOffset: 0,
 		CommandHandler:  ch,
 		SnapshotHandler: sh,
 	}

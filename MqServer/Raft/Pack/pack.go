@@ -19,6 +19,14 @@ var mu sync.Mutex
 var errorCount int // for TestCapital
 var checked map[reflect.Type]bool
 
+func Marshal(v interface{}) ([]byte, error) {
+	return msgPackage.Marshal(v)
+}
+
+func Unmarshal(bt []byte, v interface{}) error {
+	return msgPackage.Unmarshal(bt, v)
+}
+
 type LabEncoder struct {
 	gob *msgPackage.Encoder
 }

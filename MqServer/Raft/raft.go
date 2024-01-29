@@ -36,7 +36,7 @@ import (
 	labPack "MqServer/Raft/Pack"
 )
 
-func (rf *Raft) checkFuncDone(FuncName string) func() {
+func (rf *Raft) checkFuncDone(_ string) func() {
 	return func() {}
 	/* used to check deadlock questions  */
 	//t := time.Now().UnixMilli()

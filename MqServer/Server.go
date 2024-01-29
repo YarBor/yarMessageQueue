@@ -5,6 +5,7 @@ import (
 	pb "MqServer/rpc"
 	"context"
 	"google.golang.org/grpc"
+	"time"
 )
 
 type Server interface {
@@ -18,21 +19,31 @@ type ServerClient struct {
 
 type ServerImpl struct {
 	pb.UnimplementedMqServerCallServer
-	RaftServer           Raft.RaftServer
-	Url                  string
-	ID                   string
-	Key                  string
-	Conns                map[string]*ServerClient
-	MetadataLeader       *ServerClient
-	MetaDataController   MetaDataController
-	PartitionsController PartitionsController
+	RaftServer               Raft.RaftServer
+	Url                      string
+	ID                       string
+	Key                      string
+	Conns                    map[string]*ServerClient
+	MetadataLeader           *ServerClient
+	MetaDataController       MetaDataController
+	PartitionsController     PartitionsController
+	ConsumerHeartBeatManager ConsumerHeartBeatManager
+}
+
+type Consumer struct {
+	ConsumerMD
+	HeartBeat time.Time
 }
 
 // 客户端和server之间的心跳
 
 // 注册消费者
-func (s *ServerImpl) RegisterConsumer(context.Context, *pb.RegisterConsumerRequest) (*pb.RegisterConsumerResponse, error) {
-
+func (s *ServerImpl) RegisterConsumer(_ context.Context, req *pb.RegisterConsumerRequest) (*pb.RegisterConsumerResponse, error) {
+	res := s.MetaDataController.RegisterConsumer(req)
+	if res == nil {
+		panic("Ub")
+	}
+	return res, nil
 }
 
 // 注册生产者
@@ -46,35 +57,57 @@ func (s *ServerImpl) RegisterProducer(_ context.Context, req *pb.RegisterProduce
 
 // 创建话题
 func (s *ServerImpl) CreateTopic(_ context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+
 	res := s.MetaDataController.CreateTopic(req)
 	if res == nil {
-		panic(res)
+		panic("Ub")
 	}
 	return res, nil
 }
-func (s *ServerImpl) QueryTopic(context.Context, *pb.QueryTopicRequest) (*pb.QueryTopicResponse, error) {
+func (s *ServerImpl) QueryTopic(_ context.Context, req *pb.QueryTopicRequest) (*pb.QueryTopicResponse, error) {
+	res := s.MetaDataController.QueryTopic(req)
+	if res == nil {
+		panic("Ub")
+	}
+	return res, nil
 }
-func (s *ServerImpl) DestroyTopic(context.Context, *pb.DestroyTopicRequest) (*pb.DestroyTopicResponse, error) {
+func (s *ServerImpl) DestroyTopic(_ context.Context, req *pb.DestroyTopicRequest) (*pb.DestroyTopicResponse, error) {
+	res := s.MetaDataController.DestroyTopic(req)
+	if res == nil {
+		panic("Ub")
+	}
+	return res, nil
 }
-func (s *ServerImpl) ManagePartition(context.Context, *pb.ManagePartitionRequest) (*pb.ManagePartitionResponse, error) {
+func (s *ServerImpl) ManagePartition(_ context.Context, req *pb.ManagePartitionRequest) (*pb.ManagePartitionResponse, error) {
+
 }
 
 // 注销
-func (s *ServerImpl) UnRegisterConsumer(context.Context, *pb.UnRegisterConsumerRequest) (*pb.UnRegisterConsumerResponse, error) {
+func (s *ServerImpl) UnRegisterConsumer(_ context.Context, req *pb.UnRegisterConsumerRequest) (*pb.UnRegisterConsumerResponse, error) {
+	res := s.MetaDataController.UnRegisterConsumer(req)
+	if res == nil {
+		panic("Ub")
+	}
+	return res, nil
 }
 
 func (s *ServerImpl) UnRegisterProducer(_ context.Context, req *pb.UnRegisterProducerRequest) (*pb.UnRegisterProducerResponse, error) {
+	res := s.MetaDataController.UnRegisterProducer(req)
+	if res == nil {
+		panic("Ub")
+	}
+	return res, nil
 }
 
 // 拉取消息
-func (s *ServerImpl) PullMessage(context.Context, *pb.PullMessageRequest) (*pb.PullMessageResponse, error) {
+func (s *ServerImpl) PullMessage(_ context.Context, req *pb.PullMessageRequest) (*pb.PullMessageResponse, error) {
 }
 
 // 推送消息
-func (s *ServerImpl) PushMessage(context.Context, *pb.PushMessageRequest) (*pb.PushMessageResponse, error) {
+func (s *ServerImpl) PushMessage(_ context.Context, req *pb.PushMessageRequest) (*pb.PushMessageResponse, error) {
 }
 
-func (s *ServerImpl) Heartbeat(context.Context, *pb.Ack) (*pb.Response, error) {
+func (s *ServerImpl) Heartbeat(_ context.Context, req *pb.Ack) (*pb.Response, error) {
 }
 
 func ErrResponse_Failure() *pb.Response {

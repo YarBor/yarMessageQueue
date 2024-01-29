@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 package MqServer;
-option go_package = ".";
+option go_package = "./rpc";
 
 service MqServerCall {
   // 注册消费者
@@ -70,7 +70,7 @@ message RegisterConsumerRequest {
   }
   string FocalTopic = 1;
   // empty for all
-  repeated string FocalPartitions = 2;
+  string FocalPartitions = 2;
   int32 MaxReturnMessageSize = 3;
   int32 timeoutSessionMsec = 4;
   OffsetReset OffsetResetMode = 5;
@@ -85,7 +85,7 @@ message Partition {
 message RegisterConsumerResponse {
   Response response = 1;
   Credentials Credential = 2;
-  repeated Partition FocalPartitions = 3;
+  Partition FocalPartitions = 3;
 }
 
 message RegisterProducerRequest {
@@ -138,7 +138,7 @@ message UnRegisterProducerRequest {Credentials credential = 1;}
 
 message UnRegisterProducerResponse {Response response = 1;}
 
-message Message {string Message = 1;}
+message Message {bytes Message = 1;}
 
 message PushMessageRequest {
   Credentials credential = 1;
@@ -147,7 +147,8 @@ message PushMessageRequest {
 
 message PushMessageResponse {Response response = 1;}
 
-message PullMessageRequest {Ack _ = 1;
+message PullMessageRequest {
+  Ack ack = 1;
   int32 WindowSize = 2;
 }
 

@@ -23,21 +23,21 @@ var RaftLogSize = 1024 * 1024 * 2
 type syncIdMap struct {
 	mu  sync.Mutex
 	Map map[uint32]struct {
-		fn func()
+		fn func(err error)
 	}
 }
 
-func (s *syncIdMap) Add(i uint32, fn func()) {
+func (s *syncIdMap) Add(i uint32, fn func(err error)) {
 	s.mu.Lock()
-	s.Map[i] = struct{ fn func() }{fn: fn}
+	s.Map[i] = struct{ fn func(err error) }{fn: fn}
 	s.mu.Unlock()
 }
 
-func (s *syncIdMap) GetCallDelete(i uint32) {
+func (s *syncIdMap) GetCallDelete(i uint32, err error) {
 	s.mu.Lock()
 	f, ok := s.Map[i]
 	if ok {
-		defer f.fn()
+		defer f.fn(err)
 		delete(s.Map, i)
 	}
 	s.mu.Unlock()
@@ -49,8 +49,8 @@ func (s *syncIdMap) Delete(i uint32) {
 	s.mu.Unlock()
 }
 
-type CammandHandler interface {
-	Handle(interface{})
+type CommandHandler interface {
+	Handle(interface{}) error
 }
 type SnapshotHandler interface {
 	MakeSnapshot() []byte
@@ -66,11 +66,11 @@ type RaftNode struct {
 	ch         chan ApplyMsg
 	Persistent *Persister.Persister
 
-	idMap         syncIdMap
-	wg            sync.WaitGroup
-	commandOffset uint32
+	idMap           syncIdMap
+	wg              sync.WaitGroup
+	commandIdOffset uint32
 
-	CommandHandler  CammandHandler
+	CommandHandler  CommandHandler
 	SnapshotHandler SnapshotHandler
 }
 
@@ -111,10 +111,17 @@ type Entry struct {
 }
 
 func (rn *RaftNode) GetNewCommandId() uint32 {
-	return atomic.AddUint32(&rn.commandOffset, 1)
+	return atomic.AddUint32(&rn.commandIdOffset, 1)
 }
 
 func (rn *RaftNode) Commit(command interface{}) error {
+	if len(rn.Peers) == 1 {
+		rn.ch <- ApplyMsg{
+			CommandValid: true,
+			Command:      command,
+		}
+		return nil
+	}
 	if rn.rf == nil || rn.rf.killed() {
 		return errors.New(ErrNodeDidNotStart)
 	}
@@ -125,9 +132,9 @@ func (rn *RaftNode) Commit(command interface{}) error {
 		Id:      rn.GetNewCommandId(),
 		command: command,
 	}
-	ch := make(chan struct{}, 1)
-	rn.idMap.Add(entry.Id, func() {
-		ch <- struct{}{}
+	ch := make(chan error, 1)
+	rn.idMap.Add(entry.Id, func(err error) {
+		ch <- err
 	})
 	_, _, ok := rn.rf.Start(entry)
 	if !ok {
@@ -138,9 +145,13 @@ func (rn *RaftNode) Commit(command interface{}) error {
 	case <-time.After(commitTimeout):
 		rn.idMap.Delete(entry.Id)
 		return errors.New(ErrCommitTimeout)
-	case <-ch:
+	case err, ok := <-ch:
 		// success
-		return nil
+		if !ok {
+			panic("Ub")
+		} else {
+			return err
+		}
 	}
 }
 
@@ -155,12 +166,11 @@ func (rn *RaftNode) CommandHandleFunc() {
 		case applyMsg := <-rn.ch:
 			if applyMsg.CommandValid {
 				command, ok := applyMsg.Command.(Entry)
-				if ok {
-					rn.idMap.GetCallDelete(command.Id)
-				} else {
+				if !ok {
 					panic("not reflect command")
 				}
-				rn.CommandHandler.Handle(command)
+				err := rn.CommandHandler.Handle(command)
+				rn.idMap.GetCallDelete(command.Id, err)
 				if rn.rf.persister.RaftStateSize() > RaftLogSize/3 {
 					bt := rn.SnapshotHandler.MakeSnapshot()
 					rn.rf.Snapshot(applyMsg.CommandIndex, bt)
@@ -173,6 +183,9 @@ func (rn *RaftNode) CommandHandleFunc() {
 }
 
 func (rn *RaftNode) Start() {
+	if len(rn.Peers) == 1 {
+		return
+	}
 	rn.rf = Make(rn.Peers, rn.me, Persister.MakePersister(), rn.ch)
 	rn.wg.Add(1)
 	go rn.CommandHandleFunc()
