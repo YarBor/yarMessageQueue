@@ -26,7 +26,7 @@ type HeartBeatRequest struct {
 	unknownFields protoimpl.UnknownFields
 
 	Topic     string `protobuf:"bytes,2,opt,name=topic,proto3" json:"topic,omitempty"`
-	Partition string `protobuf:"bytes,3,opt,name=partition,proto3" json:"partition,omitempty"`
+	Partition string `protobuf:"bytes,3,opt,name=MessageMem,proto3" json:"MessageMem,omitempty"`
 	Arg       []byte `protobuf:"bytes,1,opt,name=arg,proto3" json:"arg,omitempty"`
 }
 
@@ -89,7 +89,7 @@ type HeartBeatResponse struct {
 	unknownFields protoimpl.UnknownFields
 
 	Topic     string `protobuf:"bytes,2,opt,name=topic,proto3" json:"topic,omitempty"`
-	Partition string `protobuf:"bytes,3,opt,name=partition,proto3" json:"partition,omitempty"`
+	Partition string `protobuf:"bytes,3,opt,name=MessageMem,proto3" json:"MessageMem,omitempty"`
 	Result    []byte `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
 }
 
@@ -152,7 +152,7 @@ type RequestPreVoteRequest struct {
 	unknownFields protoimpl.UnknownFields
 
 	Topic     string `protobuf:"bytes,2,opt,name=topic,proto3" json:"topic,omitempty"`
-	Partition string `protobuf:"bytes,3,opt,name=partition,proto3" json:"partition,omitempty"`
+	Partition string `protobuf:"bytes,3,opt,name=MessageMem,proto3" json:"MessageMem,omitempty"`
 	Arg       []byte `protobuf:"bytes,1,opt,name=arg,proto3" json:"arg,omitempty"`
 }
 
@@ -215,7 +215,7 @@ type RequestPreVoteResponse struct {
 	unknownFields protoimpl.UnknownFields
 
 	Topic     string `protobuf:"bytes,2,opt,name=topic,proto3" json:"topic,omitempty"`
-	Partition string `protobuf:"bytes,3,opt,name=partition,proto3" json:"partition,omitempty"`
+	Partition string `protobuf:"bytes,3,opt,name=MessageMem,proto3" json:"MessageMem,omitempty"`
 	Result    []byte `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
 }
 
@@ -278,7 +278,7 @@ type RequestVoteRequest struct {
 	unknownFields protoimpl.UnknownFields
 
 	Topic     string `protobuf:"bytes,2,opt,name=topic,proto3" json:"topic,omitempty"`
-	Partition string `protobuf:"bytes,3,opt,name=partition,proto3" json:"partition,omitempty"`
+	Partition string `protobuf:"bytes,3,opt,name=MessageMem,proto3" json:"MessageMem,omitempty"`
 	Arg       []byte `protobuf:"bytes,1,opt,name=arg,proto3" json:"arg,omitempty"`
 }
 
@@ -341,7 +341,7 @@ type RequestVoteResponse struct {
 	unknownFields protoimpl.UnknownFields
 
 	Topic     string `protobuf:"bytes,2,opt,name=topic,proto3" json:"topic,omitempty"`
-	Partition string `protobuf:"bytes,3,opt,name=partition,proto3" json:"partition,omitempty"`
+	Partition string `protobuf:"bytes,3,opt,name=MessageMem,proto3" json:"MessageMem,omitempty"`
 	Result    []byte `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
 }
 

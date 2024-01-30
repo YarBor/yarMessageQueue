@@ -524,7 +524,7 @@ func (x *Partition) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Partition.ProtoReflect.Descriptor instead.
+// Deprecated: Use MessageMem.ProtoReflect.Descriptor instead.
 func (*Partition) Descriptor() ([]byte, []int) {
 	return file_MqServerRpc_proto_rawDescGZIP(), []int{4}
 }
@@ -754,7 +754,7 @@ type CreateTopicRequest struct {
 	unknownFields protoimpl.UnknownFields
 
 	Topic     string                                       `protobuf:"bytes,1,opt,name=Topic,proto3" json:"Topic,omitempty"`
-	Partition []*CreateTopicRequest_PartitionCreateDetails `protobuf:"bytes,3,rep,name=Partition,proto3" json:"Partition,omitempty"`
+	Partition []*CreateTopicRequest_PartitionCreateDetails `protobuf:"bytes,3,rep,name=MessageMem,proto3" json:"MessageMem,omitempty"`
 }
 
 func (x *CreateTopicRequest) Reset() {
@@ -1997,7 +1997,7 @@ var file_MqServerRpc_proto_goTypes = []interface{}{
 	(*Ack)(nil),                                       // 5: MqServer.Ack
 	(*Response)(nil),                                  // 6: MqServer.Response
 	(*RegisterConsumerRequest)(nil),                   // 7: MqServer.RegisterConsumerRequest
-	(*Partition)(nil),                                 // 8: MqServer.Partition
+	(*Partition)(nil),                                 // 8: MqServer.MessageMem
 	(*RegisterConsumerResponse)(nil),                  // 9: MqServer.RegisterConsumerResponse
 	(*RegisterProducerRequest)(nil),                   // 10: MqServer.RegisterProducerRequest
 	(*RegisterProducerResponse)(nil),                  // 11: MqServer.RegisterProducerResponse
@@ -2027,16 +2027,16 @@ var file_MqServerRpc_proto_depIdxs = []int32{
 	2,  // 3: MqServer.RegisterConsumerRequest.OffsetResetMode:type_name -> MqServer.RegisterConsumerRequest.OffsetReset
 	6,  // 4: MqServer.RegisterConsumerResponse.response:type_name -> MqServer.Response
 	4,  // 5: MqServer.RegisterConsumerResponse.Credential:type_name -> MqServer.Credentials
-	8,  // 6: MqServer.RegisterConsumerResponse.FocalPartitions:type_name -> MqServer.Partition
+	8,  // 6: MqServer.RegisterConsumerResponse.FocalPartitions:type_name -> MqServer.MessageMem
 	6,  // 7: MqServer.RegisterProducerResponse.response:type_name -> MqServer.Response
 	4,  // 8: MqServer.RegisterProducerResponse.Credential:type_name -> MqServer.Credentials
-	8,  // 9: MqServer.RegisterProducerResponse.FocalPartitions:type_name -> MqServer.Partition
-	29, // 10: MqServer.CreateTopicRequest.Partition:type_name -> MqServer.CreateTopicRequest.PartitionCreateDetails
+	8,  // 9: MqServer.RegisterProducerResponse.FocalPartitions:type_name -> MqServer.MessageMem
+	29, // 10: MqServer.CreateTopicRequest.MessageMem:type_name -> MqServer.CreateTopicRequest.PartitionCreateDetails
 	6,  // 11: MqServer.CreateTopicResponse.response:type_name -> MqServer.Response
-	8,  // 12: MqServer.CreateTopicResponse.PartitionDetails:type_name -> MqServer.Partition
+	8,  // 12: MqServer.CreateTopicResponse.PartitionDetails:type_name -> MqServer.MessageMem
 	4,  // 13: MqServer.QueryTopicRequest.credential:type_name -> MqServer.Credentials
 	6,  // 14: MqServer.QueryTopicResponse.response:type_name -> MqServer.Response
-	8,  // 15: MqServer.QueryTopicResponse.PartitionDetails:type_name -> MqServer.Partition
+	8,  // 15: MqServer.QueryTopicResponse.PartitionDetails:type_name -> MqServer.MessageMem
 	6,  // 16: MqServer.DestroyTopicResponse.response:type_name -> MqServer.Response
 	4,  // 17: MqServer.UnRegisterConsumerRequest.credential:type_name -> MqServer.Credentials
 	6,  // 18: MqServer.UnRegisterConsumerResponse.response:type_name -> MqServer.Response
@@ -2051,7 +2051,7 @@ var file_MqServerRpc_proto_depIdxs = []int32{
 	3,  // 27: MqServer.ManagePartitionRequest.ManageMode:type_name -> MqServer.ManagePartitionRequest.ManageModes
 	4,  // 28: MqServer.ManagePartitionRequest.Credential:type_name -> MqServer.Credentials
 	6,  // 29: MqServer.ManagePartitionResponse.response:type_name -> MqServer.Response
-	8,  // 30: MqServer.ManagePartitionResponse.NowPartitions:type_name -> MqServer.Partition
+	8,  // 30: MqServer.ManagePartitionResponse.NowPartitions:type_name -> MqServer.MessageMem
 	7,  // 31: MqServer.MqServerCall.RegisterConsumer:input_type -> MqServer.RegisterConsumerRequest
 	10, // 32: MqServer.MqServerCall.RegisterProducer:input_type -> MqServer.RegisterProducerRequest
 	12, // 33: MqServer.MqServerCall.CreateTopic:input_type -> MqServer.CreateTopicRequest

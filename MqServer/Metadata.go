@@ -169,19 +169,19 @@ func ErrToResponse(err error) *pb.Response {
 	}
 	switch err.Error() {
 	case ErrSourceNotExist:
-		return ErrResponse_ErrSourceNotExist()
+		return ResponseErrSourceNotExist()
 	case ErrSourceAlreadyExist:
-		return ErrResponse_ErrSourceAlreadyExist()
+		return ResponseErrSourceAlreadyExist()
 	case ErrSourceNotEnough:
-		return ErrResponse_ErrSourceNotEnough()
+		return ResponseErrSourceNotEnough()
 	case ErrRequestIllegal:
-		return ErrResponse_ErrRequestIllegal()
+		return ResponseErrRequestIllegal()
 	case ErrRequestTimeout:
-		return ErrResponse_ErrTimeout()
+		return ResponseErrTimeout()
 	case ErrRequestServerNotServe:
-		return ErrResponse_NotServer()
+		return ResponseNotServer()
 	case ErrRequestNotLeader:
-		return ErrResponse_ErrNotLeader()
+		return ResponseErrNotLeader()
 	default:
 		panic(err)
 	}
@@ -285,14 +285,14 @@ func (md *MetaData) GetFreeBrokers(brokersNum int32) ([]*BrokerMD, error) {
 
 func (mdc *MetaDataController) RegisterProducer(request *pb.RegisterProducerRequest) *pb.RegisterProducerResponse {
 	if !mdc.IsLeader() {
-		return &pb.RegisterProducerResponse{Response: ErrResponse_ErrNotLeader()}
+		return &pb.RegisterProducerResponse{Response: ResponseErrNotLeader()}
 	}
 	mdc.mu.RLock()
 	tp, err := mdc.MD.QueryTopic(request.FocalTopic)
 	mdc.mu.RUnlock()
 
 	if err != nil {
-		return &pb.RegisterProducerResponse{Response: ErrResponse_ErrSourceNotExist()}
+		return &pb.RegisterProducerResponse{Response: ResponseErrSourceNotExist()}
 	} else {
 		// 在这里做好分配
 		// 在handle中去做挂树？
@@ -483,11 +483,11 @@ func (mdc *MetaDataController) CreateTopic(req *pb.CreateTopicRequest) *pb.Creat
 	err := mdc.MD.CheckTopic(req.Topic)
 	if err == nil {
 		mdc.mu.RUnlock()
-		return &pb.CreateTopicResponse{Response: ErrResponse_ErrSourceAlreadyExist()}
+		return &pb.CreateTopicResponse{Response: ResponseErrSourceAlreadyExist()}
 	} else {
 		for _, p := range req.Partition {
 			if int(p.ReplicationNumber) > len(mdc.MD.Brokers) {
-				return &pb.CreateTopicResponse{Response: ErrResponse_ErrSourceNotEnough()}
+				return &pb.CreateTopicResponse{Response: ResponseErrSourceNotEnough()}
 			}
 		}
 		tp := TopicMD{
@@ -580,7 +580,7 @@ func (mdc *MetaDataController) commit(mode string, data interface{}) error {
 
 func (mdc *MetaDataController) QueryTopic(req *pb.QueryTopicRequest) *pb.QueryTopicResponse {
 	if !mdc.IsLeader() {
-		return &pb.QueryTopicResponse{Response: ErrResponse_ErrNotLeader()}
+		return &pb.QueryTopicResponse{Response: ResponseErrNotLeader()}
 	}
 	mdc.mu.RLock()
 	res, err := mdc.MD.QueryTopic(req.Topic)
@@ -626,7 +626,7 @@ func (mdc *MetaDataController) QueryTopic(req *pb.QueryTopicRequest) *pb.QueryTo
 					})
 					goto next3
 				}
-				return &pb.QueryTopicResponse{Response: ErrResponse_ErrSourceNotExist()}
+				return &pb.QueryTopicResponse{Response: ResponseErrSourceNotExist()}
 			next3:
 			}
 		} else {
@@ -637,13 +637,13 @@ func (mdc *MetaDataController) QueryTopic(req *pb.QueryTopicRequest) *pb.QueryTo
 }
 func (mdc *MetaDataController) RegisterConsumer(req *pb.RegisterConsumerRequest) *pb.RegisterConsumerResponse {
 	if !mdc.IsLeader() {
-		return &pb.RegisterConsumerResponse{Response: ErrResponse_ErrNotLeader()}
+		return &pb.RegisterConsumerResponse{Response: ResponseErrNotLeader()}
 	}
 	mdc.mu.RLock()
 	tp, err := mdc.MD.QueryTopic(req.FocalTopic)
 	mdc.mu.RUnlock()
 	if err != nil {
-		return &pb.RegisterConsumerResponse{Response: ErrResponse_ErrSourceAlreadyExist()}
+		return &pb.RegisterConsumerResponse{Response: ResponseErrSourceAlreadyExist()}
 	}
 	var parts *pb.Partition
 	for _, partition := range tp.Partitions {
@@ -659,7 +659,7 @@ func (mdc *MetaDataController) RegisterConsumer(req *pb.RegisterConsumerRequest)
 			}
 			goto next
 		}
-		return &pb.RegisterConsumerResponse{Response: ErrResponse_ErrSourceNotExist()}
+		return &pb.RegisterConsumerResponse{Response: ResponseErrSourceNotExist()}
 	next:
 	}
 	c := ConsumerMD{
@@ -689,7 +689,7 @@ func (mdc *MetaDataController) RegisterConsumer(req *pb.RegisterConsumerRequest)
 }
 func (mdc *MetaDataController) UnRegisterConsumer(req *pb.UnRegisterConsumerRequest) *pb.UnRegisterConsumerResponse {
 	if mdc.IsLeader() == false {
-		return &pb.UnRegisterConsumerResponse{Response: ErrResponse_ErrNotLeader()}
+		return &pb.UnRegisterConsumerResponse{Response: ResponseErrNotLeader()}
 	}
 	mdc.mu.RLock()
 	Consumer, err := mdc.MD.QueryConsumer(req.Credential.Id)
@@ -705,7 +705,7 @@ func (mdc *MetaDataController) UnRegisterConsumer(req *pb.UnRegisterConsumerRequ
 }
 func (mdc *MetaDataController) UnRegisterProducer(req *pb.UnRegisterProducerRequest) *pb.UnRegisterProducerResponse {
 	if !mdc.IsLeader() {
-		return &pb.UnRegisterProducerResponse{Response: ErrResponse_ErrNotLeader()}
+		return &pb.UnRegisterProducerResponse{Response: ResponseErrNotLeader()}
 	}
 	mdc.mu.RLock()
 	Producer, err := mdc.MD.QueryProducer(req.Credential.Id)
@@ -721,7 +721,7 @@ func (mdc *MetaDataController) UnRegisterProducer(req *pb.UnRegisterProducerRequ
 }
 func (mdc *MetaDataController) DestroyTopic(req *pb.DestroyTopicRequest) *pb.DestroyTopicResponse {
 	if !mdc.IsLeader() {
-		return &pb.DestroyTopicResponse{Response: ErrResponse_ErrNotLeader()}
+		return &pb.DestroyTopicResponse{Response: ResponseErrNotLeader()}
 	}
 	mdc.mu.RLock()
 	err := mdc.MD.CheckTopic(req.Topic)

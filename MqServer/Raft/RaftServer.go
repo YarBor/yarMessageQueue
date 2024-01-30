@@ -44,7 +44,7 @@ func (rs *RaftServer) HeartBeat(_ context.Context, arg *pb.HeartBeatRequest) (rp
 	defer rs.mu.RUnlock()
 	var rf *Raft
 	if tp, par := arg.GetTopic(), arg.GetPartition(); tp == "" || par == "" {
-		//panic("invalid topic argument and partition argument")
+		//panic("invalid topic argument and MessageMem argument")
 		rf = rs.metadataRaft
 	} else {
 		rfnode, ok := rs.rfs[tp][par]
@@ -81,7 +81,7 @@ func (rs *RaftServer) RequestPreVote(_ context.Context, arg *pb.RequestPreVoteRe
 	var rf *Raft
 
 	if tp, par := arg.GetTopic(), arg.GetPartition(); tp == "" || par == "" {
-		//panic("invalid topic argument and partition argument")
+		//panic("invalid topic argument and MessageMem argument")
 		rf = rs.metadataRaft
 	} else {
 		x, ok := rs.rfs[tp]
@@ -122,7 +122,7 @@ func (rs *RaftServer) RequestVote(_ context.Context, arg *pb.RequestVoteRequest)
 	defer rs.mu.RUnlock()
 	var rf *Raft
 	if tp, par := arg.GetTopic(), arg.GetPartition(); tp == "" || par == "" {
-		//panic("invalid topic argument and partition argument")
+		//panic("invalid topic argument and MessageMem argument")
 		rf = rs.metadataRaft
 	} else {
 		x, ok := rs.rfs[tp]
