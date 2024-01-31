@@ -51,6 +51,7 @@ type BrokersGroupMD struct {
 }
 
 type ConsumersGroupMD struct {
+	// TODO: 应该是一个消费组 共享一套设置？？？
 	Consumers []*ConsumerMD
 }
 

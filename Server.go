@@ -1,13 +1,14 @@
 package MqServer
 
 import (
+	"MqServer/ConsumerGroup"
 	"MqServer/MessageMem"
 	"MqServer/Raft"
 	pb "MqServer/rpc"
 	"context"
 	"google.golang.org/grpc"
+	"math"
 	"sync"
-	"time"
 )
 
 type Server interface {
@@ -29,11 +30,6 @@ type broker struct {
 	MetadataLeader       *ServerClient
 	MetaDataController   MetaDataController
 	PartitionsController PartitionsController
-}
-
-type Consumer struct {
-	ConsumerMD
-	HeartBeat time.Time
 }
 
 // 客户端和server之间的心跳
@@ -144,48 +140,61 @@ func ResponseNotServer() *pb.Response {
 }
 
 type Partition struct {
-	P                        string
-	T                        string
-	ConsumerHeartBeatManager *ConsumerHeartBeatManager
-	Part                     *MessageMem.MessageEntry
+	T            string
+	P            string
+	Consumers    *ConsumerGroup.GroupManager
+	MessageEntry *MessageMem.MessageEntry
 }
 
-func newPartition(t, p string, MaxEntries, MaxSize uint64) *Partition {
+func newPartition(t, p string, MaxEntries, MaxSize uint64, handleTimeout ConsumerGroup.SessionLogoutNotifier) *Partition {
 	return &Partition{
-		P:                        p,
-		T:                        t,
-		ConsumerHeartBeatManager: newConsumerHeartBeatManager(),
-		Part:                     MessageMem.NewMessageEntry(MaxEntries, MaxSize),
+		T:            t,
+		P:            p,
+		Consumers:    ConsumerGroup.NewConsumerHeartBeatManager(handleTimeout),
+		MessageEntry: MessageMem.NewMessageEntry(MaxEntries, MaxSize),
 	}
+}
+
+func (p *Partition) registerConsumer(c *ConsumerGroup.Consumer) error {
+	return p.Consumers.RegisterConsumer(c)
+}
+
+var (
+	defaultMaxEntries = uint64(math.MaxUint64)
+	defaultMaxSize    = uint64(math.MaxUint64)
+)
+
+type PartitionsController struct {
+	mu            sync.RWMutex
+	P             map[string]*Partition // key: "Topic/Partition"
+	handleTimeout ConsumerGroup.SessionLogoutNotifier
+}
+
+func NewPartitionsController(handleTimeout ConsumerGroup.SessionLogoutNotifier) *PartitionsController {
+	return &PartitionsController{
+		P:             make(map[string]*Partition),
+		handleTimeout: handleTimeout,
+	}
+}
+
+func (pc *PartitionsController) getPartition(t, p string) *Partition {
+	pc.mu.RLock()
+	part, ok := pc.P[t+"/"+p]
+	pc.mu.RUnlock()
+	if ok {
+		return part
+	}
+	return nil
 }
 
 func (ptc *PartitionsController) RegisterPart(t, p string, MaxEntries, MaxSize uint64) {
 	ptc.mu.Lock()
 	defer ptc.mu.Unlock()
-	ptc.P[t+"/"+p] = newPartition(t, p, MaxEntries, MaxSize)
-}
-
-type PartitionsController struct {
-	mu sync.RWMutex
-	P  map[string]*Partition // key: "Topic/Partition"
-}
-
-func (c *PartitionsController) RegisterConsumer() error {
-
-}
-
-type ConsumerHeartBeatManager struct {
-	mu            sync.RWMutex
-	wg            sync.WaitGroup
-	ConsumeOffset uint64
-	IdHash        map[uint32]int // CredId -- Index
-	Consumers     []Consumer
-}
-
-func newConsumerHeartBeatManager() *ConsumerHeartBeatManager {
-	return &ConsumerHeartBeatManager{
-		ConsumeOffset: 0,
-		IdHash:        make(map[uint32]int),
-		Consumers:     make([]Consumer, 0),
+	if MaxSize == -1 {
+		MaxSize = defaultMaxSize
 	}
+	if MaxEntries == -1 {
+		MaxEntries = defaultMaxEntries
+	}
+	ptc.P[t+"/"+p] = newPartition(t, p, MaxEntries, MaxSize, ptc.handleTimeout)
 }
