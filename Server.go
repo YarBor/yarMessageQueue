@@ -3,7 +3,7 @@ package MqServer
 import (
 	"MqServer/ConsumerGroup"
 	"MqServer/MessageMem"
-	"MqServer/Raft"
+	"MqServer/RaftServer"
 	pb "MqServer/rpc"
 	"context"
 	"google.golang.org/grpc"
@@ -22,7 +22,7 @@ type ServerClient struct {
 
 type broker struct {
 	pb.UnimplementedMqServerCallServer
-	RaftServer           Raft.RaftServer
+	RaftServer           RaftServer.RaftServer
 	Url                  string
 	ID                   string
 	Key                  string
@@ -75,8 +75,10 @@ func (s *broker) DestroyTopic(_ context.Context, req *pb.DestroyTopicRequest) (*
 	}
 	return res, nil
 }
-func (s *broker) ManagePartition(_ context.Context, req *pb.ManagePartitionRequest) (*pb.ManagePartitionResponse, error) {
 
+func (s *broker) ManagePartition(_ context.Context, req *pb.ManagePartitionRequest) (*pb.ManagePartitionResponse, error) {
+	// TODO:
+	return nil, nil
 }
 
 // 注销
@@ -98,13 +100,49 @@ func (s *broker) UnRegisterProducer(_ context.Context, req *pb.UnRegisterProduce
 
 // 拉取消息
 func (s *broker) PullMessage(_ context.Context, req *pb.PullMessageRequest) (*pb.PullMessageResponse, error) {
+	// TODO:
+	return nil, nil
 }
 
 // 推送消息
 func (s *broker) PushMessage(_ context.Context, req *pb.PushMessageRequest) (*pb.PushMessageResponse, error) {
+	// TODO:
+	return nil, nil
 }
 
 func (s *broker) Heartbeat(_ context.Context, req *pb.Ack) (*pb.Response, error) {
+	// TODO:
+	return nil, nil
+}
+
+func (s *broker) JoinConsumerGroup(_ context.Context, req *pb.JoinConsumerGroupRequest) (*pb.JoinConsumerGroupResponse, error) {
+	//TODO:
+	return nil, nil
+}
+
+func (s *broker) LeaveConsumerGroup(_ context.Context, req *pb.LeaveConsumerGroupRequest) (*pb.LeaveConsumerGroupResponse, error) {
+	//TODO:
+	return nil, nil
+}
+
+func (s *broker) CheckSourceTerm(_ context.Context, req *pb.CheckSourceTermRequest) (*pb.CheckSourceTermResponse, error) {
+	//TODO:
+	return nil, nil
+}
+
+func (s *broker) GetCorrespondPartition(_ context.Context, req *pb.GetCorrespondPartitionRequest) (*pb.GetCorrespondPartitionResponse, error) {
+	//TODO:
+	return nil, nil
+}
+
+func (s *broker) RegisterConsumerGroup(_ context.Context, req *pb.RegisterConsumerGroupRequest) (*pb.RegisterConsumerGroupResponse, error) {
+	//TODO:
+	return nil, nil
+}
+
+func (s *broker) UnRegisterConsumerGroup(_ context.Context, req *pb.UnRegisterConsumerGroupRequest) (*pb.UnRegisterConsumerGroupResponse, error) {
+	//TODO:
+	return nil, nil
 }
 
 func ResponseFailure() *pb.Response {

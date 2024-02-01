@@ -1,7 +1,7 @@
 package ConsumerGroup
 
 import (
-	"MqServer"
+	"MqServer/Err"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -12,7 +12,7 @@ type GroupManager struct {
 	mu        sync.RWMutex
 	wg        sync.WaitGroup
 	IsStop    bool
-	IdHash    map[uint32]int // CredId -- Index
+	IdHash    map[string]int // CredId -- Index
 	Consumers []*Consumer
 	SessionLogoutNotifier
 }
@@ -20,7 +20,7 @@ type GroupManager struct {
 func NewConsumerHeartBeatManager(s SessionLogoutNotifier) *GroupManager {
 	res := &GroupManager{
 		IsStop:                false,
-		IdHash:                make(map[uint32]int),
+		IdHash:                make(map[string]int),
 		Consumers:             make([]*Consumer, 0),
 		SessionLogoutNotifier: s,
 	}
@@ -30,8 +30,11 @@ func NewConsumerHeartBeatManager(s SessionLogoutNotifier) *GroupManager {
 }
 
 type Consumer struct {
-	MqServer.ConsumerMD
-	mu sync.Mutex
+	SelfId               string
+	GroupId              string
+	MaxReturnMessageSize int32
+	TimeoutSessionMsec   int32
+	mu                   sync.Mutex
 	//TODO:
 	//ConsumeLastTimeGetData
 	ConsumeOffset uint64
@@ -79,16 +82,16 @@ func (gm *GroupManager) heartbeatCheck() {
 
 func (gm *GroupManager) RegisterConsumer(consumer *Consumer) error {
 	if gm.IsStop {
-		return errors.New(MqServer.ErrSourceNotExist)
+		return errors.New(Err.ErrSourceNotExist)
 	}
 	gm.mu.Lock()
 	defer gm.mu.Unlock()
-	if _, ok := gm.IdHash[consumer.Cred.Id]; !ok {
-		gm.IdHash[consumer.Cred.Id] = len(gm.Consumers) - 1
+	if _, ok := gm.IdHash[consumer.SelfId]; !ok {
+		gm.IdHash[consumer.SelfId] = len(gm.Consumers) - 1
 		gm.Consumers = append(gm.Consumers, consumer)
 		return nil
 	} else {
-		return errors.New(MqServer.ErrSourceAlreadyExist)
+		return errors.New(Err.ErrSourceAlreadyExist)
 	}
 }
 

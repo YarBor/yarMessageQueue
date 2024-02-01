@@ -1,8 +1,8 @@
 package Persister
 
 //
-// support for Raft and kvraft to save persistent
-// Raft state (log &c) and k/v server snapshots.
+// support for RaftServer and kvraft to save persistent
+// RaftServer state (log &c) and k/v server snapshots.
 //
 // we will use the original persister.go to test your code for grading.
 // so, while you can modify this code to help you debug, please
@@ -48,7 +48,7 @@ func (ps *Persister) RaftStateSize() int {
 	return len(ps.raftstate)
 }
 
-// Save both Raft state and K/V snapshot as a single atomic action,
+// Save both RaftServer state and K/V snapshot as a single atomic action,
 // to help avoid them getting out of sync.
 func (ps *Persister) Save(raftstate []byte, snapshot []byte) {
 	ps.mu.Lock()

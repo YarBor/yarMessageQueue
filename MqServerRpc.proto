@@ -4,7 +4,13 @@ package MqServer;
 option go_package = "./rpc";
 
 service MqServerCall {
+  rpc JoinConsumerGroup(JoinConsumerGroupRequest) returns (JoinConsumerGroupResponse) {}
+  rpc LeaveConsumerGroup(LeaveConsumerGroupRequest) returns (LeaveConsumerGroupResponse) {}
+  rpc CheckSourceTerm(CheckSourceTermRequest) returns (CheckSourceTermResponse) {}
+  rpc GetCorrespondPartition(GetCorrespondPartitionRequest) returns (GetCorrespondPartitionResponse) {}
   // 注册消费者
+  rpc RegisterConsumerGroup(RegisterConsumerGroupRequest) returns (RegisterConsumerGroupResponse) {}
+  rpc UnRegisterConsumerGroup(UnRegisterConsumerGroupRequest) returns (UnRegisterConsumerGroupResponse) {}
   rpc RegisterConsumer(RegisterConsumerRequest) returns (RegisterConsumerResponse) {}
   // 注册生产者
   rpc RegisterProducer(RegisterProducerRequest) returns (RegisterProducerResponse) {}
@@ -28,20 +34,103 @@ service MqServerCall {
   //  {}
 }
 
+message UnRegisterConsumerGroupResponse {
+  Response res = 1;
+}
+
+message UnRegisterConsumerGroupRequest {
+  Credentials GroupCred = 1;
+}
+
+message GetCorrespondPartitionResponse {
+  Response res = 4;
+
+  int32 TopicTerm = 1;
+  int32 GroupTerm = 2;
+  repeated Partition FcParts = 3;
+}
+
+
+message GetCorrespondPartitionRequest {
+  Credentials ConsCred = 4;
+  Credentials GroupCred = 3;
+  int32 TopicTerm = 1;
+  int32 GroupTerm = 2;
+}
+
+
+message CheckSourceTermResponse {
+  Response res = 5;
+  int32 TopicTerm = 1;
+  int32 GroupTerm = 2;
+  repeated Partition FcParts = 3;
+}
+
+
+message CheckSourceTermRequest {
+  Credentials ConsCred = 4;
+  Credentials GroupCred = 3;
+  int32 TopicTerm = 1;
+  int32 GroupTerm = 2;
+}
+
+message LeaveConsumerGroupRequest {
+  Credentials GroupCred = 1;
+  Credentials ConsumerCred = 2;
+}
+
+message LeaveConsumerGroupResponse {
+  Response res = 1;
+}
+
+message JoinConsumerGroupRequest {
+  Credentials Cred = 1;
+  string ConsumerGroupId = 2;
+}
+
+message JoinConsumerGroupResponse{
+  Response res = 1;
+  repeated Partition FcParts = 3;
+  int32 GroupTerm = 4;
+}
+
+message RegisterConsumerGroupRequest {
+  enum PullOptionMode {
+    unSet = 0;
+    Earliest = 3;
+    Latest = 1;
+    None = 2;
+  }
+  PullOptionMode PullOption = 2;
+  optional string GroupId = 3;
+}
+
+
+message RegisterConsumerGroupResponse {
+  Response res = 2;
+  string Id = 3;
+  int32 GroupTerm = 4;
+  Credentials Cred = 1;
+}
+
+
+
 // 凭证/通过这个找到对应的Consumer
 message Credentials {
   enum CredentialsIdentity {
     Consumer = 0;
     Producer = 1;
     Broker = 2;
+    ConsumerGroup = 3;
   }
   CredentialsIdentity Identity = 1;
-  uint32 Id = 2;
+  string Id = 2;
   string Key = 3;
 }
 
 message Ack {
-  Credentials credential = 1;
+  Credentials ConsCred = 1;
+  Credentials GroupCred = 3;
   // Consumer's receive message offset
   optional int32 offset = 2;
 }
@@ -63,29 +152,31 @@ message Response {
 }
 
 message RegisterConsumerRequest {
-  enum OffsetReset {
-    Earliest = 0;
-    Latest = 1;
-    None = 2;
-  }
-  string FocalTopic = 1;
   // empty for all
-  string FocalPartitions = 2;
   int32 MaxReturnMessageSize = 3;
   int32 timeoutSessionMsec = 4;
-  OffsetReset OffsetResetMode = 5;
+}
+
+message BrokerData {
+  string Name = 1;
+  string Url = 2;
+}
+
+message TpData {
+  string Topic = 1;
+  int32 TpTerm = 2;
+  repeated Partition Parts = 3;
 }
 
 message Partition {
   string Topic = 1;
-  string Name = 2;
-  repeated string Urls = 3;
+  string Part = 2;
+  repeated BrokerData Brokers = 3;
 }
 
 message RegisterConsumerResponse {
   Response response = 1;
   Credentials Credential = 2;
-  Partition FocalPartitions = 3;
 }
 
 message RegisterProducerRequest {
@@ -97,7 +188,7 @@ message RegisterProducerRequest {
 message RegisterProducerResponse {
   Response response = 1;
   Credentials Credential = 2;
-  repeated Partition FocalPartitions = 3;
+  TpData tpData = 3;
   int32 AllowPushMessageSize = 4;
   int32 AllowPushMessageCount = 5;
 }
@@ -113,7 +204,7 @@ message CreateTopicRequest {
 
 message CreateTopicResponse {
   Response response = 1;
-  repeated Partition PartitionDetails = 2;
+  TpData tp = 2;
 }
 
 message QueryTopicRequest {

@@ -7,13 +7,15 @@ package Pack
 // about non-capitalized field names.
 //
 
-import msgPackage "github.com/vmihailenco/msgpack/v5"
-import "io"
-import "reflect"
-import "fmt"
-import "sync"
-import "unicode"
-import "unicode/utf8"
+import (
+	"fmt"
+	msgPackage "github.com/vmihailenco/msgpack/v5"
+	"io"
+	"reflect"
+	"sync"
+	"unicode"
+	"unicode/utf8"
+)
 
 var mu sync.Mutex
 var errorCount int // for TestCapital
@@ -97,7 +99,7 @@ func checkType(t reflect.Type) {
 			rune, _ := utf8.DecodeRuneInString(f.Name)
 			if unicode.IsUpper(rune) == false {
 				// ta da
-				fmt.Printf("labgob error: lower-case field %v of %v in RPC or persist/snapshot will break your Raft\n",
+				fmt.Printf("labgob error: lower-case field %v of %v in RPC or persist/snapshot will break your RaftServer\n",
 					f.Name, t.Name())
 				mu.Lock()
 				errorCount += 1

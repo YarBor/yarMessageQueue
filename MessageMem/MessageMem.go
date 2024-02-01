@@ -194,8 +194,10 @@ func (me *MessageEntry) Handle(command interface{}) error {
 	return nil
 }
 
-func (me *MessageEntry) MakeSnapshot() []byte {
+// TODO:
 
+func (me *MessageEntry) MakeSnapshot() []byte {
+	return nil
 }
 
 func (me *MessageEntry) LoadSnapshot([]byte) {

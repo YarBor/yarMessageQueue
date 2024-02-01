@@ -1,10 +1,9 @@
-package Raft
+package RaftServer
 
 import (
 	mqLog "MqServer/Log"
-	"MqServer/Raft/Net"
-	"MqServer/Raft/Pack"
-	"MqServer/Raft/Persister"
+	"MqServer/RaftServer/Pack"
+	"MqServer/RaftServer/Persister"
 	pb "MqServer/rpc"
 	"bytes"
 	"context"
@@ -33,7 +32,7 @@ type RaftServer struct {
 	listener     net.Listener
 	Addr         string
 	metadataRaft *Raft
-	rfs          map[string]map[string]*RaftNode
+	rfs          map[string]map[string]*RaftNode.RaftNode
 }
 
 func (rs *RaftServer) Serve() error {
@@ -158,15 +157,15 @@ func (rs *RaftServer) RequestVote(_ context.Context, arg *pb.RequestVoteRequest)
 }
 
 // url包含自己
-func (rs *RaftServer) RegisterRfNode(T, P string, NodesUrl []string, ch CommandHandler, sh SnapshotHandler) (*RaftNode, error) {
+func (rs *RaftServer) RegisterRfNode(T, P string, NodesUrl []string, ch RaftNode.CommandHandler, sh RaftNode.SnapshotHandler) (*RaftNode.RaftNode, error) {
 	if T == "" || P == "" {
 		return nil, errors.New(UnKnownTopicPartition)
 	}
-	rn := RaftNode{
+	rn := RaftNode.RaftNode{
 		rf:              nil,
 		T:               T,
 		P:               P,
-		Peers:           make([]*Net.ClientEnd, len(NodesUrl)),
+		Peers:           make([]*ClientEnd, len(NodesUrl)),
 		me:              0,
 		ch:              make(chan ApplyMsg),
 		Persistent:      Persister.MakePersister(),
@@ -188,7 +187,7 @@ func (rs *RaftServer) RegisterRfNode(T, P string, NodesUrl []string, ch CommandH
 	rs.mu.Lock()
 	_, ok := rs.rfs[T]
 	if !ok {
-		rs.rfs[T] = make(map[string]*RaftNode)
+		rs.rfs[T] = make(map[string]*RaftNode.RaftNode)
 	}
 	rs.rfs[T][P] = &rn
 	rs.mu.Unlock()
@@ -219,18 +218,18 @@ func MakeRaftServer() (*RaftServer, error) {
 		server:                      s,
 		listener:                    lis,
 		Addr:                        raftListenAddr,
-		rfs:                         make(map[string]map[string]*RaftNode),
+		rfs:                         make(map[string]map[string]*RaftNode.RaftNode),
 	}
 	pb.RegisterRaftCallServer(s, res)
 	return res, nil
 }
 
-func (rs *RaftServer) RegisterMetadataRaft(urls []string, ch chan ApplyMsg) (*RaftNode, error) {
+func (rs *RaftServer) RegisterMetadataRaft(urls []string, ch chan ApplyMsg) (*RaftNode.RaftNode, error) {
 	T, P := "", ""
-	rn := RaftNode{
+	rn := RaftNode.RaftNode{
 		T:     T,
 		P:     P,
-		Peers: make([]*Net.ClientEnd, len(urls)),
+		Peers: make([]*ClientEnd, len(urls)),
 	}
 	selfIndex := -1
 	for i, n := range urls {
@@ -249,7 +248,7 @@ func (rs *RaftServer) RegisterMetadataRaft(urls []string, ch chan ApplyMsg) (*Ra
 	rs.mu.Lock()
 	_, ok := rs.rfs[T]
 	if !ok {
-		rs.rfs[T] = make(map[string]*RaftNode)
+		rs.rfs[T] = make(map[string]*RaftNode.RaftNode)
 	}
 	rs.rfs[T][P] = &rn
 	rs.mu.Unlock()
@@ -261,7 +260,7 @@ func (rs *RaftServer) RegisterMetadataRaft(urls []string, ch chan ApplyMsg) (*Ra
 func (rs *RaftServer) Stop() {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
-	rfnode := make([]*RaftNode, 0)
+	rfnode := make([]*RaftNode.RaftNode, 0)
 	for _, i := range rs.rfs {
 		for _, j := range i {
 			rfnode = append(rfnode, j)
@@ -272,5 +271,5 @@ func (rs *RaftServer) Stop() {
 	}
 	rs.server.Stop()
 	rs.metadataRaft = nil
-	rs.rfs = make(map[string]map[string]*RaftNode)
+	rs.rfs = make(map[string]map[string]*RaftNode.RaftNode)
 }

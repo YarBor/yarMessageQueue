@@ -1,4 +1,4 @@
-package Log
+package PgLog
 
 import (
 	"errors"

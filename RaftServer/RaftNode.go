@@ -1,8 +1,7 @@
-package Raft
+package RaftServer
 
 import (
-	"MqServer/Raft/Net"
-	"MqServer/Raft/Persister"
+	"MqServer/RaftServer/Persister"
 	pb "MqServer/rpc"
 	"errors"
 	"google.golang.org/grpc"
@@ -23,21 +22,23 @@ var RaftLogSize = 1024 * 1024 * 2
 type syncIdMap struct {
 	mu  sync.Mutex
 	Map map[uint32]struct {
-		fn func(err error)
+		fn func(err error, data interface{})
 	}
 }
 
-func (s *syncIdMap) Add(i uint32, fn func(err error)) {
+func (s *syncIdMap) Add(i uint32, fn func(err error, data interface{})) {
 	s.mu.Lock()
-	s.Map[i] = struct{ fn func(err error) }{fn: fn}
+	s.Map[i] = struct {
+		fn func(err error, data interface{})
+	}{fn: fn}
 	s.mu.Unlock()
 }
 
-func (s *syncIdMap) GetCallDelete(i uint32, err error) {
+func (s *syncIdMap) GetCallDelete(i uint32, err error, data interface{}) {
 	s.mu.Lock()
 	f, ok := s.Map[i]
 	if ok {
-		defer f.fn(err)
+		defer f.fn(err, data)
 		delete(s.Map, i)
 	}
 	s.mu.Unlock()
@@ -50,7 +51,7 @@ func (s *syncIdMap) Delete(i uint32) {
 }
 
 type CommandHandler interface {
-	Handle(interface{}) error
+	Handle(interface{}) (error, interface{})
 }
 type SnapshotHandler interface {
 	MakeSnapshot() []byte
@@ -58,12 +59,12 @@ type SnapshotHandler interface {
 }
 
 type RaftNode struct {
-	rf         *Raft
+	rf         *RaftServer.Raft
 	T          string
 	P          string
-	Peers      []*Net.ClientEnd
+	Peers      []*RaftServer.ClientEnd
 	me         int
-	ch         chan ApplyMsg
+	ch         chan RaftServer.ApplyMsg
 	Persistent *Persister.Persister
 
 	idMap           syncIdMap
@@ -86,12 +87,12 @@ func (rn *RaftNode) CloseAllConn() {
 	}
 }
 
-func (rn *RaftNode) LinkPeerRpcServer(addr string) (*Net.ClientEnd, error) {
+func (rn *RaftNode) LinkPeerRpcServer(addr string) (*RaftServer.ClientEnd, error) {
 	conn, err := grpc.Dial(addr, grpc.WithInsecure())
 	if err != nil {
 		panic(err.Error())
 	}
-	res := &Net.ClientEnd{
+	res := &RaftServer.ClientEnd{
 		RaftCallClient: pb.NewRaftCallClient(conn),
 		Rfn:            rn,
 		Conn:           conn,
@@ -114,43 +115,53 @@ func (rn *RaftNode) GetNewCommandId() uint32 {
 	return atomic.AddUint32(&rn.commandIdOffset, 1)
 }
 
-func (rn *RaftNode) Commit(command interface{}) error {
-	if len(rn.Peers) == 1 {
-		rn.ch <- ApplyMsg{
-			CommandValid: true,
-			Command:      command,
-		}
-		return nil
-	}
-	if rn.rf == nil || rn.rf.killed() {
-		return errors.New(ErrNodeDidNotStart)
-	}
-	if !rn.rf.IsLeader() {
-		return errors.New(ErrNotLeader)
-	}
+func (rn *RaftNode) Commit(command interface{}) (error, interface{}) {
 	entry := Entry{
 		Id:      rn.GetNewCommandId(),
 		command: command,
 	}
-	ch := make(chan error, 1)
-	rn.idMap.Add(entry.Id, func(err error) {
-		ch <- err
-	})
-	_, _, ok := rn.rf.Start(entry)
-	if !ok {
-		rn.idMap.Delete(entry.Id)
-		return errors.New(ErrNotLeader)
+	ch := make(chan struct {
+		err  error
+		data interface{}
+	}, 1)
+
+	f := func(err error, data interface{}) {
+		ch <- struct {
+			err  error
+			data interface{}
+		}{err: err, data: data}
+	}
+
+	if len(rn.Peers) == 1 {
+		rn.idMap.Add(entry.Id, f)
+		rn.ch <- RaftServer.ApplyMsg{
+			CommandValid: true,
+			Command:      command,
+		}
+	} else {
+		if rn.rf == nil || rn.rf.killed() {
+			return errors.New(ErrNodeDidNotStart), nil
+		}
+		if !rn.rf.IsLeader() {
+			return errors.New(ErrNotLeader), nil
+		}
+		rn.idMap.Add(entry.Id, f)
+		_, _, ok := rn.rf.Start(entry)
+		if !ok {
+			rn.idMap.Delete(entry.Id)
+			return errors.New(ErrNotLeader), nil
+		}
 	}
 	select {
 	case <-time.After(commitTimeout):
 		rn.idMap.Delete(entry.Id)
-		return errors.New(ErrCommitTimeout)
-	case err, ok := <-ch:
+		return errors.New(ErrCommitTimeout), nil
+	case p, ok := <-ch:
 		// success
 		if !ok {
 			panic("Ub")
 		} else {
-			return err
+			return p.err, p.data
 		}
 	}
 }
@@ -169,8 +180,8 @@ func (rn *RaftNode) CommandHandleFunc() {
 				if !ok {
 					panic("not reflect command")
 				}
-				err := rn.CommandHandler.Handle(command)
-				rn.idMap.GetCallDelete(command.Id, err)
+				err, data := rn.CommandHandler.Handle(command)
+				rn.idMap.GetCallDelete(command.Id, err, data)
 				if rn.rf.persister.RaftStateSize() > RaftLogSize/3 {
 					bt := rn.SnapshotHandler.MakeSnapshot()
 					rn.rf.Snapshot(applyMsg.CommandIndex, bt)

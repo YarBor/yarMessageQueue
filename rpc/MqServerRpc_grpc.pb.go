@@ -22,7 +22,13 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type MqServerCallClient interface {
+	JoinConsumerGroup(ctx context.Context, in *JoinConsumerGroupRequest, opts ...grpc.CallOption) (*JoinConsumerGroupResponse, error)
+	LeaveConsumerGroup(ctx context.Context, in *LeaveConsumerGroupRequest, opts ...grpc.CallOption) (*LeaveConsumerGroupResponse, error)
+	CheckSourceTerm(ctx context.Context, in *CheckSourceTermRequest, opts ...grpc.CallOption) (*CheckSourceTermResponse, error)
+	GetCorrespondPartition(ctx context.Context, in *GetCorrespondPartitionRequest, opts ...grpc.CallOption) (*GetCorrespondPartitionResponse, error)
 	// 注册消费者
+	RegisterConsumerGroup(ctx context.Context, in *RegisterConsumerGroupRequest, opts ...grpc.CallOption) (*RegisterConsumerGroupResponse, error)
+	UnRegisterConsumerGroup(ctx context.Context, in *UnRegisterConsumerGroupRequest, opts ...grpc.CallOption) (*UnRegisterConsumerGroupResponse, error)
 	RegisterConsumer(ctx context.Context, in *RegisterConsumerRequest, opts ...grpc.CallOption) (*RegisterConsumerResponse, error)
 	// 注册生产者
 	RegisterProducer(ctx context.Context, in *RegisterProducerRequest, opts ...grpc.CallOption) (*RegisterProducerResponse, error)
@@ -48,6 +54,60 @@ type mqServerCallClient struct {
 
 func NewMqServerCallClient(cc grpc.ClientConnInterface) MqServerCallClient {
 	return &mqServerCallClient{cc}
+}
+
+func (c *mqServerCallClient) JoinConsumerGroup(ctx context.Context, in *JoinConsumerGroupRequest, opts ...grpc.CallOption) (*JoinConsumerGroupResponse, error) {
+	out := new(JoinConsumerGroupResponse)
+	err := c.cc.Invoke(ctx, "/MqServer.MqServerCall/JoinConsumerGroup", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mqServerCallClient) LeaveConsumerGroup(ctx context.Context, in *LeaveConsumerGroupRequest, opts ...grpc.CallOption) (*LeaveConsumerGroupResponse, error) {
+	out := new(LeaveConsumerGroupResponse)
+	err := c.cc.Invoke(ctx, "/MqServer.MqServerCall/LeaveConsumerGroup", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mqServerCallClient) CheckSourceTerm(ctx context.Context, in *CheckSourceTermRequest, opts ...grpc.CallOption) (*CheckSourceTermResponse, error) {
+	out := new(CheckSourceTermResponse)
+	err := c.cc.Invoke(ctx, "/MqServer.MqServerCall/CheckSourceTerm", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mqServerCallClient) GetCorrespondPartition(ctx context.Context, in *GetCorrespondPartitionRequest, opts ...grpc.CallOption) (*GetCorrespondPartitionResponse, error) {
+	out := new(GetCorrespondPartitionResponse)
+	err := c.cc.Invoke(ctx, "/MqServer.MqServerCall/GetCorrespondPartition", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mqServerCallClient) RegisterConsumerGroup(ctx context.Context, in *RegisterConsumerGroupRequest, opts ...grpc.CallOption) (*RegisterConsumerGroupResponse, error) {
+	out := new(RegisterConsumerGroupResponse)
+	err := c.cc.Invoke(ctx, "/MqServer.MqServerCall/RegisterConsumerGroup", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mqServerCallClient) UnRegisterConsumerGroup(ctx context.Context, in *UnRegisterConsumerGroupRequest, opts ...grpc.CallOption) (*UnRegisterConsumerGroupResponse, error) {
+	out := new(UnRegisterConsumerGroupResponse)
+	err := c.cc.Invoke(ctx, "/MqServer.MqServerCall/UnRegisterConsumerGroup", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *mqServerCallClient) RegisterConsumer(ctx context.Context, in *RegisterConsumerRequest, opts ...grpc.CallOption) (*RegisterConsumerResponse, error) {
@@ -153,7 +213,13 @@ func (c *mqServerCallClient) PushMessage(ctx context.Context, in *PushMessageReq
 // All implementations must embed UnimplementedMqServerCallServer
 // for forward compatibility
 type MqServerCallServer interface {
+	JoinConsumerGroup(context.Context, *JoinConsumerGroupRequest) (*JoinConsumerGroupResponse, error)
+	LeaveConsumerGroup(context.Context, *LeaveConsumerGroupRequest) (*LeaveConsumerGroupResponse, error)
+	CheckSourceTerm(context.Context, *CheckSourceTermRequest) (*CheckSourceTermResponse, error)
+	GetCorrespondPartition(context.Context, *GetCorrespondPartitionRequest) (*GetCorrespondPartitionResponse, error)
 	// 注册消费者
+	RegisterConsumerGroup(context.Context, *RegisterConsumerGroupRequest) (*RegisterConsumerGroupResponse, error)
+	UnRegisterConsumerGroup(context.Context, *UnRegisterConsumerGroupRequest) (*UnRegisterConsumerGroupResponse, error)
 	RegisterConsumer(context.Context, *RegisterConsumerRequest) (*RegisterConsumerResponse, error)
 	// 注册生产者
 	RegisterProducer(context.Context, *RegisterProducerRequest) (*RegisterProducerResponse, error)
@@ -178,6 +244,24 @@ type MqServerCallServer interface {
 type UnimplementedMqServerCallServer struct {
 }
 
+func (UnimplementedMqServerCallServer) JoinConsumerGroup(context.Context, *JoinConsumerGroupRequest) (*JoinConsumerGroupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method JoinConsumerGroup not implemented")
+}
+func (UnimplementedMqServerCallServer) LeaveConsumerGroup(context.Context, *LeaveConsumerGroupRequest) (*LeaveConsumerGroupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method LeaveConsumerGroup not implemented")
+}
+func (UnimplementedMqServerCallServer) CheckSourceTerm(context.Context, *CheckSourceTermRequest) (*CheckSourceTermResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CheckSourceTerm not implemented")
+}
+func (UnimplementedMqServerCallServer) GetCorrespondPartition(context.Context, *GetCorrespondPartitionRequest) (*GetCorrespondPartitionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetCorrespondPartition not implemented")
+}
+func (UnimplementedMqServerCallServer) RegisterConsumerGroup(context.Context, *RegisterConsumerGroupRequest) (*RegisterConsumerGroupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RegisterConsumerGroup not implemented")
+}
+func (UnimplementedMqServerCallServer) UnRegisterConsumerGroup(context.Context, *UnRegisterConsumerGroupRequest) (*UnRegisterConsumerGroupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UnRegisterConsumerGroup not implemented")
+}
 func (UnimplementedMqServerCallServer) RegisterConsumer(context.Context, *RegisterConsumerRequest) (*RegisterConsumerResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RegisterConsumer not implemented")
 }
@@ -222,6 +306,114 @@ type UnsafeMqServerCallServer interface {
 
 func RegisterMqServerCallServer(s grpc.ServiceRegistrar, srv MqServerCallServer) {
 	s.RegisterService(&MqServerCall_ServiceDesc, srv)
+}
+
+func _MqServerCall_JoinConsumerGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(JoinConsumerGroupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MqServerCallServer).JoinConsumerGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/MqServer.MqServerCall/JoinConsumerGroup",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MqServerCallServer).JoinConsumerGroup(ctx, req.(*JoinConsumerGroupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MqServerCall_LeaveConsumerGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LeaveConsumerGroupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MqServerCallServer).LeaveConsumerGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/MqServer.MqServerCall/LeaveConsumerGroup",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MqServerCallServer).LeaveConsumerGroup(ctx, req.(*LeaveConsumerGroupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MqServerCall_CheckSourceTerm_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CheckSourceTermRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MqServerCallServer).CheckSourceTerm(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/MqServer.MqServerCall/CheckSourceTerm",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MqServerCallServer).CheckSourceTerm(ctx, req.(*CheckSourceTermRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MqServerCall_GetCorrespondPartition_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCorrespondPartitionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MqServerCallServer).GetCorrespondPartition(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/MqServer.MqServerCall/GetCorrespondPartition",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MqServerCallServer).GetCorrespondPartition(ctx, req.(*GetCorrespondPartitionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MqServerCall_RegisterConsumerGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegisterConsumerGroupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MqServerCallServer).RegisterConsumerGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/MqServer.MqServerCall/RegisterConsumerGroup",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MqServerCallServer).RegisterConsumerGroup(ctx, req.(*RegisterConsumerGroupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MqServerCall_UnRegisterConsumerGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnRegisterConsumerGroupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MqServerCallServer).UnRegisterConsumerGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/MqServer.MqServerCall/UnRegisterConsumerGroup",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MqServerCallServer).UnRegisterConsumerGroup(ctx, req.(*UnRegisterConsumerGroupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _MqServerCall_RegisterConsumer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -429,6 +621,30 @@ var MqServerCall_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "MqServer.MqServerCall",
 	HandlerType: (*MqServerCallServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "JoinConsumerGroup",
+			Handler:    _MqServerCall_JoinConsumerGroup_Handler,
+		},
+		{
+			MethodName: "LeaveConsumerGroup",
+			Handler:    _MqServerCall_LeaveConsumerGroup_Handler,
+		},
+		{
+			MethodName: "CheckSourceTerm",
+			Handler:    _MqServerCall_CheckSourceTerm_Handler,
+		},
+		{
+			MethodName: "GetCorrespondPartition",
+			Handler:    _MqServerCall_GetCorrespondPartition_Handler,
+		},
+		{
+			MethodName: "RegisterConsumerGroup",
+			Handler:    _MqServerCall_RegisterConsumerGroup_Handler,
+		},
+		{
+			MethodName: "UnRegisterConsumerGroup",
+			Handler:    _MqServerCall_UnRegisterConsumerGroup_Handler,
+		},
 		{
 			MethodName: "RegisterConsumer",
 			Handler:    _MqServerCall_RegisterConsumer_Handler,

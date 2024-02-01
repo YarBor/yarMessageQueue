@@ -1,4 +1,4 @@
-package Raft
+package RaftServer
 
 //
 // this is an outline of the API that raft must expose to
@@ -6,19 +6,19 @@ package Raft
 // each of these functions for more details.
 //
 // rf = Make(...)
-//   create a new Raft server.
+//   create a new RaftServer server.
 // rf.Start(command interface{}) (index, term, isleader)
 //   start agreement on a new log entry
 // rf.GetState() (term, isLeader)
-//   ask a Raft for its current term, and whether it thinks it is leader
+//   ask a RaftServer for its current term, and whether it thinks it is leader
 // ApplyMsg
-//   each time a new entry is committed to the log, each Raft peer
+//   each time a new entry is committed to the log, each RaftServer peer
 //   should send an ApplyMsg to the service (or tester)
 //   in the same server.
 //
 
 import (
-	"MqServer/Raft/Persister"
+	"MqServer/RaftServer/Persister"
 	//	"bytes"
 	"bytes"
 	"context"
@@ -32,8 +32,7 @@ import (
 	"time"
 
 	MyLogger "MqServer/Log"
-	labrpc "MqServer/Raft/Net"
-	labPack "MqServer/Raft/Pack"
+	labPack "MqServer/RaftServer/Pack"
 )
 
 func (rf *Raft) checkFuncDone(_ string) func() {
@@ -167,7 +166,7 @@ type Log struct {
 
 // A Go object implementing a single Raft peer.
 type RaftPeer struct {
-	C                *labrpc.ClientEnd
+	C                *ClientEnd
 	modeLock         sync.Mutex
 	BeginHeartBeat   chan struct{}
 	StopHeartBeat    chan struct{}
@@ -223,7 +222,7 @@ func (s *MsgStore) string() string {
 
 type Raft struct {
 	mu        sync.Mutex           // Lock to protect shared access to this peer's state
-	peers     []*labrpc.ClientEnd  // RPC end points of all peers
+	peers     []*ClientEnd         // RPC end points of all peers
 	persister *Persister.Persister // Object to hold this peer's persisted state
 	me        int                  // this peer's index into peers[]
 	dead      int32                // set by Kill()
@@ -301,7 +300,7 @@ func (rf *Raft) getSnapshotUnsafe() *ApplyMsg {
 	return rf.commandLog.Msgs[0]
 }
 
-// func (r *Raft) tryUpdateCommitIndexUnsafe(i int32) {
+// func (r *RaftServer) tryUpdateCommitIndexUnsafe(i int32) {
 // r.commitIndex = i
 // r.Dolog(-1, "tryUpdateCommitIndex", i, "submit in commitChan")
 // r.commitChan <- i
@@ -390,7 +389,7 @@ func (rf *Raft) goSendHeartBeat(index int) bool {
 	arg.CommitIndex = rf.getCommitIndex()
 	arg.Msg = nil
 	// do call
-	ok := rf.call(index, "Raft.HeartBeat", &arg, &rpl)
+	ok := rf.call(index, "RaftServer.HeartBeat", &arg, &rpl)
 	if !ok {
 		return false
 	}
@@ -860,17 +859,17 @@ func (rf *Raft) RequestVote(args *RequestArgs, reply *RequestReply) {
 // that the caller passes the address of the reply struct with &, not
 // the struct itself.
 
-// func (rf *Raft) sendRequestVote(server int, args *RequestArgs, reply *RequestReply) bool {
-// 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+// func (rf *RaftServer) sendRequestVote(server int, args *RequestArgs, reply *RequestReply) bool {
+// 	ok := rf.peers[server].Call("RaftServer.RequestVote", args, reply)
 // 	return ok
 // }
 
-// the service using Raft (e.g. a k/v server) wants to start
-// agreement on the next command to be appended to Raft's log. if this
+// the service using RaftServer (e.g. a k/v server) wants to start
+// agreement on the next command to be appended to RaftServer's log. if this
 // server isn't the leader, returns false. otherwise start the
 // agreement and return immediately. there is no guarantee that this
-// command will ever be committed to the Raft log, since the leader
-// may fail or lose an election. even if the Raft instance has been killed,
+// command will ever be committed to the RaftServer log, since the leader
+// may fail or lose an election. even if the RaftServer instance has been killed,
 // this function should return gracefully.
 //
 // the first return value is the index that the command will appear at
@@ -1296,13 +1295,13 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 				case rf.raftPeers[index].JumpHeartBeat <- struct{}{}:
 				default:
 				}
-				rf.Dolog(index, "Raft.Heartbeat[LoadMsgBegin]", arg.string())
-				ok := rf.call(index, "Raft.HeartBeat", arg, rpl)
+				rf.Dolog(index, "RaftServer.Heartbeat[LoadMsgBegin]", arg.string())
+				ok := rf.call(index, "RaftServer.HeartBeat", arg, rpl)
 				switch {
 				case !ok:
-					rf.Dolog(index, "Raft.HeartBeat(sendMsg)", "Timeout")
+					rf.Dolog(index, "RaftServer.HeartBeat(sendMsg)", "Timeout")
 				case !rpl.IsAgree:
-					rf.Dolog(index, "Raft.HeartBeat(sendMsg)", "Peer DisAgree", rpl.string())
+					rf.Dolog(index, "RaftServer.HeartBeat(sendMsg)", "Peer DisAgree", rpl.string())
 				case rpl.LogDataMsg != nil:
 					rf.tryleaderUpdatePeer(index, rpl.LogDataMsg)
 				default:
@@ -1411,7 +1410,7 @@ func (rf *Raft) leaderUpdatePeer(peerIndex int, msg *LogData) {
 		}
 
 		// 没有超时机制
-		ok := rf.raftPeers[peerIndex].C.Call("Raft.HeartBeat", &arg, &rpl)
+		ok := rf.raftPeers[peerIndex].C.Call("RaftServer.HeartBeat", &arg, &rpl)
 		if ok {
 			rf.raftPeers[peerIndex].updateLastTalkTime()
 			rf.raftPeers[peerIndex].logIndexTermLock.Lock()
@@ -1525,9 +1524,9 @@ func TryToBecomeLeader(rf *Raft) {
 			wg.Add(1)
 			go func(index int) {
 				defer wg.Done()
-				rf.Dolog(index, "Raft.RequestPreVote  GO ", index, arg.string())
-				ok := rf.call(index, "Raft.RequestPreVote", &arg, &rpl[index])
-				rf.Dolog(index, "Raft.RequestPreVote RETURN ", ok, rpl[index].IsAgree, rpl[index].string())
+				rf.Dolog(index, "RaftServer.RequestPreVote  GO ", index, arg.string())
+				ok := rf.call(index, "RaftServer.RequestPreVote", &arg, &rpl[index])
+				rf.Dolog(index, "RaftServer.RequestPreVote RETURN ", ok, rpl[index].IsAgree, rpl[index].string())
 			}(i)
 		}
 	}
@@ -1562,9 +1561,9 @@ func TryToBecomeLeader(rf *Raft) {
 		if i != rf.me {
 			wg.Add(1)
 			go func(index int) {
-				rf.Dolog(index, "Raft.RequestVote GO ", arg.string())
-				ok := rf.call(index, "Raft.RequestVote", &arg, &rpl[index])
-				rf.Dolog(index, "Raft.RequestVote RETUEN ", ok, rpl[index].IsAgree, rpl[index].string())
+				rf.Dolog(index, "RaftServer.RequestVote GO ", arg.string())
+				ok := rf.call(index, "RaftServer.RequestVote", &arg, &rpl[index])
+				rf.Dolog(index, "RaftServer.RequestVote RETUEN ", ok, rpl[index].IsAgree, rpl[index].string())
 				wg.Done()
 			}(i)
 		}
@@ -1627,8 +1626,8 @@ func (rf *Raft) call(index int, FuncName string, arg *RequestArgs, rpl *RequestR
 	return i
 }
 
-func Make(peers []*labrpc.ClientEnd, me int, persister *Persister.Persister, applyCh chan ApplyMsg) *Raft {
-	// os.Stderr.WriteString("Raft Make \n")
+func Make(peers []*ClientEnd, me int, persister *Persister.Persister, applyCh chan ApplyMsg) *Raft {
+	// os.Stderr.WriteString("RaftServer Make \n")
 	rf := &Raft{}
 	rf.pMsgStore = &MsgStore{msgs: make([]*LogData, 0), owner: -1, term: -1, mu: sync.Mutex{}}
 	rf.commitChan = make(chan int32, commitChanSize)
