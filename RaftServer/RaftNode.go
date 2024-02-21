@@ -59,12 +59,12 @@ type SnapshotHandler interface {
 }
 
 type RaftNode struct {
-	rf         *RaftServer.Raft
+	rf         *Raft
 	T          string
 	P          string
-	Peers      []*RaftServer.ClientEnd
+	Peers      []*ClientEnd
 	me         int
-	ch         chan RaftServer.ApplyMsg
+	ch         chan ApplyMsg
 	Persistent *Persister.Persister
 
 	idMap           syncIdMap
@@ -87,12 +87,12 @@ func (rn *RaftNode) CloseAllConn() {
 	}
 }
 
-func (rn *RaftNode) LinkPeerRpcServer(addr string) (*RaftServer.ClientEnd, error) {
+func (rn *RaftNode) LinkPeerRpcServer(addr string) (*ClientEnd, error) {
 	conn, err := grpc.Dial(addr, grpc.WithInsecure())
 	if err != nil {
 		panic(err.Error())
 	}
-	res := &RaftServer.ClientEnd{
+	res := &ClientEnd{
 		RaftCallClient: pb.NewRaftCallClient(conn),
 		Rfn:            rn,
 		Conn:           conn,
@@ -134,7 +134,7 @@ func (rn *RaftNode) Commit(command interface{}) (error, interface{}) {
 
 	if len(rn.Peers) == 1 {
 		rn.idMap.Add(entry.Id, f)
-		rn.ch <- RaftServer.ApplyMsg{
+		rn.ch <- ApplyMsg{
 			CommandValid: true,
 			Command:      command,
 		}
