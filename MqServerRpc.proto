@@ -4,21 +4,26 @@ package MqServer;
 option go_package = "./rpc";
 
 service MqServerCall {
-  rpc JoinConsumerGroup(JoinConsumerGroupRequest) returns (JoinConsumerGroupResponse) {}
+  rpc JoinConsumerGroup(JoinConsumerGroupRequest)  returns (JoinConsumerGroupResponse) {}
   rpc LeaveConsumerGroup(LeaveConsumerGroupRequest) returns (LeaveConsumerGroupResponse) {}
   rpc CheckSourceTerm(CheckSourceTermRequest) returns (CheckSourceTermResponse) {}
   rpc GetCorrespondPartition(GetCorrespondPartitionRequest) returns (GetCorrespondPartitionResponse) {}
-  // 注册消费者
+  //订阅
+  rpc SubscribeTopic(SubscribeTopicRequest) returns (SubscribeTopicResponse) {}
+  rpc UnSubscribeTopic(UnSubscribeTopicRequest) returns (UnSubscribeTopicResponse) {}
+  // 注册消费者组
   rpc RegisterConsumerGroup(RegisterConsumerGroupRequest) returns (RegisterConsumerGroupResponse) {}
   rpc UnRegisterConsumerGroup(UnRegisterConsumerGroupRequest) returns (UnRegisterConsumerGroupResponse) {}
-  rpc RegisterConsumer(RegisterConsumerRequest) returns (RegisterConsumerResponse) {}
-  // 注册生产者
-  rpc RegisterProducer(RegisterProducerRequest) returns (RegisterProducerResponse) {}
   // 创建话题
   rpc CreateTopic(CreateTopicRequest) returns (CreateTopicResponse) {}
   rpc QueryTopic(QueryTopicRequest) returns (QueryTopicResponse) {}
   rpc DestroyTopic(DestroyTopicRequest) returns (DestroyTopicResponse) {}
-  rpc ManagePartition(ManagePartitionRequest) returns (ManagePartitionResponse) {}
+  // Add / Del Part
+  rpc AddPart(AddPartRequest) returns (AddPartResponse) {}
+  rpc RemovePart(RemovePartRequest) returns (RemovePartResponse) {}
+  // 注册
+  rpc RegisterConsumer(RegisterConsumerRequest) returns (RegisterConsumerResponse) {}
+  rpc RegisterProducer(RegisterProducerRequest) returns (RegisterProducerResponse) {}
   // 注销
   rpc UnRegisterConsumer(UnRegisterConsumerRequest) returns (UnRegisterConsumerResponse) {}
   rpc UnRegisterProducer(UnRegisterProducerRequest) returns (UnRegisterProducerResponse) {}
@@ -29,9 +34,42 @@ service MqServerCall {
   rpc PullMessage(PullMessageRequest) returns (PullMessageResponse) {}
   // 推送消息
   rpc PushMessage(PushMessageRequest) returns (PushMessageResponse) {}
-  // 拉取元数据
-  //  rpc UpdateMetadata(UpdateMetadataRequest) returns (UpdateMetadataResponse)
-  //  {}
+}
+
+message AddPartRequest {
+  Credentials Cred = 1;
+  Partition part = 3;
+}
+
+message AddPartResponse {
+  Response res = 1;
+}
+
+message RemovePartRequest {
+  Credentials Cred = 1;
+  Partition part = 3;
+}
+
+message RemovePartResponse {
+  Response res = 1 ;
+}
+
+message SubscribeTopicRequest {
+  Credentials CGCred = 4;
+  string Tp = 3;
+}
+
+message SubscribeTopicResponse {
+  Response res = 1;
+}
+
+message UnSubscribeTopicRequest {
+  Credentials CGCred = 4;
+  string Tp = 3;
+}
+
+message UnSubscribeTopicResponse {
+  Response res = 1;
 }
 
 message UnRegisterConsumerGroupResponse {
@@ -44,7 +82,6 @@ message UnRegisterConsumerGroupRequest {
 
 message GetCorrespondPartitionResponse {
   Response res = 4;
-
   int32 TopicTerm = 1;
   int32 GroupTerm = 2;
   repeated Partition FcParts = 3;
@@ -152,7 +189,6 @@ message Response {
 }
 
 message RegisterConsumerRequest {
-  // empty for all
   int32 MaxReturnMessageSize = 3;
   int32 timeoutSessionMsec = 4;
 }
@@ -215,6 +251,7 @@ message QueryTopicRequest {
 message QueryTopicResponse {
   Response response = 1;
   repeated Partition PartitionDetails = 2;
+  int32 TopicTerm = 3;
 }
 
 message DestroyTopicRequest {string Topic = 1;}
@@ -248,20 +285,3 @@ message PullMessageResponse {
   repeated Message Msgs = 2;
 }
 
-message ManagePartitionRequest {
-  string Topic = 1;
-  enum ManageModes {
-    Add = 0;
-    Del = 1;
-    Follow = 2;
-    UnFollow = 3;
-  }
-  ManageModes ManageMode = 2;
-  optional Credentials Credential = 3;
-  string TargetPartitionName = 4;
-}
-
-message ManagePartitionResponse {
-  Response response = 1;
-  repeated Partition NowPartitions = 2;
-}

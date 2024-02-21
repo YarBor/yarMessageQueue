@@ -6,8 +6,8 @@ import (
 	"MqServer/RaftServer/Pack"
 	pb "MqServer/rpc"
 	"errors"
+	"fmt"
 	"sort"
-	"strconv"
 	"sync"
 	"sync/atomic"
 )
@@ -28,6 +28,57 @@ type MetaData struct {
 	TpTerm          map[string]*int32 // key:Val TopicName : TopicTerm
 	cgtMu           sync.RWMutex
 	ConsGroupTerm   map[string]*int32 // key:Val ConsumerGroupID : ConsumerGroupTerm
+}
+
+func (md *MetaData) getConsGroupTerm(ConsGroupID string) int32 {
+	md.cgtMu.RLock()
+	res, ok := md.ConsGroupTerm[ConsGroupID]
+	md.cgtMu.RUnlock()
+	if ok {
+		return atomic.LoadInt32(res)
+	} else {
+		return -1
+	}
+}
+
+func (md *MetaData) addConsGroupTerm(ConsGroupID string) int32 {
+	md.cgtMu.RLock()
+	res, ok := md.ConsGroupTerm[ConsGroupID]
+	md.cgtMu.RUnlock()
+	if ok {
+		return atomic.AddInt32(res, 1)
+	} else {
+		i := int32(1)
+		md.cgtMu.Lock()
+		md.ConsGroupTerm[ConsGroupID] = &i
+		md.cgtMu.Unlock()
+		return i
+	}
+}
+func (md *MetaData) getTpTerm(TpName string) int32 {
+	md.ttMu.RLock()
+	res, ok := md.TpTerm[TpName]
+	md.ttMu.RUnlock()
+	if ok {
+		return atomic.LoadInt32(res)
+	} else {
+		return -1
+	}
+}
+
+func (md *MetaData) addTpTerm(TpName string) int32 {
+	md.ttMu.RLock()
+	res, ok := md.TpTerm[TpName]
+	md.ttMu.RUnlock()
+	if ok {
+		return atomic.AddInt32(res, 1)
+	} else {
+		i := int32(1)
+		md.ttMu.Lock()
+		md.TpTerm[TpName] = &i
+		md.ttMu.Unlock()
+		return i
+	}
 }
 
 func NewMetaData() *MetaData {
@@ -74,17 +125,17 @@ type BrokersGroupMD struct {
 type ConsumersGroupMD struct {
 	mu              sync.RWMutex
 	GroupID         string
-	FocalTopics     map[string]map[string][]BrokerData // [t][p][]urls...
-	ConsumersFcPart map[string][]struct {
-		TopicPart string // "T-P"
-		Urls      []BrokerData
+	FocalTopics     map[string]*PartitionSmD // [t][p][]urls...
+	ConsumersFcPart map[string]*[]struct {
+		Topic, Part string // "T-P"
+		Urls        []*BrokerData
 	} // [id][]Part...
 	Mode      pb.RegisterConsumerGroupRequest_PullOptionMode
 	GroupTerm int32
 }
 
 type PartitionMD struct {
-	Topic       string
+	//Topic       string
 	Part        string
 	BrokerGroup BrokersGroupMD
 }
@@ -131,27 +182,32 @@ func (bg *BrokersGroupMD) Copy() BrokersGroupMD {
 
 func (p *PartitionMD) Copy() PartitionMD {
 	return PartitionMD{
-		Topic:       p.Topic,
+		//Topic:       p.Topic,
 		Part:        p.Part,
 		BrokerGroup: p.BrokerGroup.Copy(),
 	}
 }
 
+type PartitionSmD struct {
+	Term  int32
+	Parts []*PartitionMD
+}
 type TopicMD struct {
 	Name            string
-	Partitions      []*PartitionMD
+	Part            PartitionSmD
 	FollowerGroupID []string
-	TpTerm          int32
 }
 
 func (t *TopicMD) Copy() TopicMD {
 	tt := TopicMD{
-		Name:       t.Name,
-		Partitions: make([]*PartitionMD, len(t.Partitions)),
+		Name: t.Name,
+		Part: PartitionSmD{
+			Term:  t.Part.Term,
+			Parts: make([]*PartitionMD, len(t.Part.Parts))},
 	}
-	for i := range t.Partitions {
-		p := t.Partitions[i].Copy()
-		tt.Partitions[i] = &p
+	for i := range t.Part.Parts {
+		p := t.Part.Parts[i].Copy()
+		tt.Part.Parts[i] = &p
 	}
 	return tt
 }
@@ -327,11 +383,11 @@ func (mdc *MetaDataController) RegisterProducer(request *pb.RegisterProducerRequ
 			},
 			TpData: &pb.TpData{
 				Topic:  request.FocalTopic,
-				TpTerm: tp.TpTerm,
-				Parts:  make([]*pb.Partition, 0, len(tp.Partitions)),
+				TpTerm: tp.Part.Term,
+				Parts:  make([]*pb.Partition, 0, len(tp.Part.Parts)),
 			},
 		}
-		for _, partition := range tp.Partitions {
+		for _, partition := range tp.Part.Parts {
 			p := &pb.Partition{
 				Topic:   request.FocalTopic,
 				Part:    partition.Part,
@@ -358,9 +414,21 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 	var err error = nil
 	var retData interface{} = nil
 	switch mdCommand.Mode {
+	case MetadataCommandRegisterConsumer:
+		p := mdCommand.data.(ConsumerMD)
+		id := fmt.Sprint(mdc.MD.GetIncreaseID())
+		retData = id
+		p.SelfId = id
+		mdc.MD.cMu.Lock()
+		if err = mdc.MD.CheckConsumer(id); err == nil {
+			panic("Ub")
+		} else {
+			mdc.MD.Consumers[p.SelfId] = &p
+		}
+		mdc.MD.cMu.Unlock()
 	case MetadataCommandRegisterProducer:
 		p := mdCommand.data.(ProducerMD)
-		id := strconv.Itoa(int(mdc.MD.GetIncreaseID()))
+		id := fmt.Sprint(mdc.MD.GetIncreaseID())
 		retData = id
 		p.SelfId = id
 		mdc.MD.pMu.Lock()
@@ -379,8 +447,48 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 			mdc.MD.Topics[p.Name] = &p
 		}
 		mdc.MD.tpMu.Unlock()
+	case MetadataCommandUnRegisterConsumer:
+		ConId := mdCommand.data.(string)
+
+		mdc.MD.cMu.Lock()
+		targetConsumer, ok := mdc.MD.Consumers[ConId]
+		if !ok {
+			err = errors.New(Err.ErrSourceNotExist)
+		} else {
+			delete(mdc.MD.Consumers, ConId)
+		}
+		mdc.MD.cMu.Unlock()
+
+		if err != nil || targetConsumer.GroupId == "" {
+			break
+		}
+
+		mdc.MD.cgMu.RLock()
+		var targetGroup *ConsumersGroupMD
+		targetGroup, ok = mdc.MD.ConsGroup[targetConsumer.GroupId]
+		mdc.MD.cgMu.RUnlock()
+
+		if !ok {
+			err = errors.New(Err.ErrSourceNotExist)
+			break
+		}
+
+		targetGroup.mu.Lock()
+		delete(targetGroup.ConsumersFcPart, ConId)
+		IsClear := len(targetGroup.ConsumersFcPart) == 0
+		targetGroup.mu.Unlock()
+
+		if IsClear {
+			mdc.MD.cgMu.Lock()
+			delete(mdc.MD.ConsGroup, targetGroup.GroupID)
+			mdc.MD.cgMu.Unlock()
+		} else {
+			err = mdc.MD.reBalance(targetGroup.GroupID)
+		}
+
 	}
 	return err, retData
+	// todo:
 }
 
 func (mdc *MetaDataController) MakeSnapshot() []byte {
@@ -405,6 +513,9 @@ func (mdc *MetaDataController) LoadSnapshot(bt []byte) {
 }
 
 func (mdc *MetaDataController) CreateTopic(req *pb.CreateTopicRequest) *pb.CreateTopicResponse {
+	if !mdc.IsLeader() {
+		return &pb.CreateTopicResponse{Response: ResponseErrNotLeader()}
+	}
 	mdc.mu.RLock()
 	defer mdc.mu.RUnlock()
 	mdc.MD.tpMu.RLock()
@@ -417,9 +528,11 @@ func (mdc *MetaDataController) CreateTopic(req *pb.CreateTopicRequest) *pb.Creat
 	}
 	tp := TopicMD{
 		Name:            req.Topic,
-		Partitions:      make([]*PartitionMD, 0, len(req.Partition)),
 		FollowerGroupID: make([]string, 0),
-		TpTerm:          0,
+		Part: PartitionSmD{
+			Term:  0,
+			Parts: make([]*PartitionMD, 0, len(req.Partition)),
+		},
 	}
 	for _, details := range req.Partition {
 		if details.ReplicationNumber == 0 {
@@ -432,8 +545,7 @@ func (mdc *MetaDataController) CreateTopic(req *pb.CreateTopicRequest) *pb.Creat
 				Response: ErrToResponse(err),
 			}
 		}
-		tp.Partitions = append(tp.Partitions, &PartitionMD{
-			Topic:       req.Topic,
+		tp.Part.Parts = append(tp.Part.Parts, &PartitionMD{
 			Part:        details.PartitionName,
 			BrokerGroup: bg,
 		})
@@ -446,11 +558,11 @@ func (mdc *MetaDataController) CreateTopic(req *pb.CreateTopicRequest) *pb.Creat
 
 	res := &pb.CreateTopicResponse{Response: ResponseSuccess(), Tp: &pb.TpData{
 		Topic:  req.Topic,
-		TpTerm: tp.TpTerm,
-		Parts:  make([]*pb.Partition, 0, len(tp.Partitions)),
+		TpTerm: tp.Part.Term,
+		Parts:  make([]*pb.Partition, 0, len(tp.Part.Parts)),
 	}}
 
-	for _, partition := range tp.Partitions {
+	for _, partition := range tp.Part.Parts {
 		p := &pb.Partition{
 			Topic:   req.Topic,
 			Part:    partition.Part,
@@ -476,19 +588,208 @@ func (mdc *MetaDataController) commit(mode string, data interface{}) (error, int
 	return err, p
 }
 
-// todo:
 func (mdc *MetaDataController) QueryTopic(req *pb.QueryTopicRequest) *pb.QueryTopicResponse {
-	return nil
+	// todo:
+	if mdc.IsLeader() == false {
+		return &pb.QueryTopicResponse{Response: ResponseErrNotLeader()}
+	}
+	mdc.mu.RLock()
+	defer mdc.mu.RUnlock()
+	mdc.MD.tpMu.RLock()
+	res, err := mdc.MD.QueryTopic(req.Topic)
+	mdc.MD.tpMu.RUnlock()
+	if err != nil {
+		return &pb.QueryTopicResponse{Response: ErrToResponse(err)}
+	}
+	ret := pb.QueryTopicResponse{
+		Response:         ResponseSuccess(),
+		TopicTerm:        res.Part.Term,
+		PartitionDetails: make([]*pb.Partition, 0, len(res.Part.Parts)),
+	}
+	for _, partition := range res.Part.Parts {
+		p := &pb.Partition{
+			Topic:   req.Topic,
+			Part:    partition.Part,
+			Brokers: make([]*pb.BrokerData, 0, len(partition.BrokerGroup.Members)),
+		}
+		for _, member := range partition.BrokerGroup.Members {
+			bd := &pb.BrokerData{
+				Name: member.Name,
+				Url:  member.Url,
+			}
+			p.Brokers = append(p.Brokers, bd)
+		}
+		ret.PartitionDetails = append(ret.PartitionDetails, p)
+	}
+	return &ret
 }
+
 func (mdc *MetaDataController) RegisterConsumer(req *pb.RegisterConsumerRequest) *pb.RegisterConsumerResponse {
-	return nil
+	// todo:
+	if mdc.IsLeader() == false {
+		return &pb.RegisterConsumerResponse{Response: ResponseErrNotLeader()}
+	}
+	mdc.mu.RLock()
+	defer mdc.mu.RUnlock()
+	c := ConsumerMD{
+		SelfId:               "",
+		GroupId:              "",
+		MaxReturnMessageSize: req.MaxReturnMessageSize,
+		TimeoutSessionMsec:   req.TimeoutSessionMsec,
+	}
+	err, data := mdc.commit(MetadataCommandRegisterConsumer, c)
+	if err != nil {
+		return &pb.RegisterConsumerResponse{Response: ErrToResponse(err)}
+	}
+	return &pb.RegisterConsumerResponse{
+		Response: ResponseSuccess(),
+		Credential: &pb.Credentials{
+			Identity: pb.Credentials_Consumer,
+			Id:       data.(string),
+			Key:      "",
+		},
+	}
 }
+
 func (mdc *MetaDataController) UnRegisterConsumer(req *pb.UnRegisterConsumerRequest) *pb.UnRegisterConsumerResponse {
-	return nil
+	// todo:
+	if mdc.IsLeader() == false {
+		return &pb.UnRegisterConsumerResponse{Response: ResponseErrNotLeader()}
+	}
+	mdc.mu.RLock()
+	defer mdc.mu.RUnlock()
+	mdc.MD.cMu.RLock()
+	i, err := mdc.MD.QueryConsumer(req.Credential.Id)
+	mdc.MD.cMu.RUnlock()
+	if err != nil {
+		return &pb.UnRegisterConsumerResponse{Response: ErrToResponse(err)}
+	} else {
+		err, _ = mdc.commit(MetadataCommandUnRegisterConsumer, i)
+		return &pb.UnRegisterConsumerResponse{Response: ErrToResponse(err)}
+	}
 }
 func (mdc *MetaDataController) UnRegisterProducer(req *pb.UnRegisterProducerRequest) *pb.UnRegisterProducerResponse {
+	// todo:
 	return nil
 }
+
+func (mdc *MetaDataController) RegisterConsumerGroup(req *pb.RegisterConsumerGroupRequest) *pb.RegisterConsumerGroupResponse {
+	// todo
+}
+
+func (mdc *MetaDataController) UnRegisterConsumerGroup(req *pb.UnRegisterConsumerGroupRequest) *pb.UnRegisterConsumerGroupResponse {
+	// todo
+}
+
+func (mdc *MetaDataController) JoinRegisterConsumerGroup(req *pb.JoinConsumerGroupRequest) *pb.JoinConsumerGroupResponse {
+	// todo
+}
+
+func (mdc *MetaDataController) LeaveRegisterConsumerGroup(req *pb.LeaveConsumerGroupRequest) *pb.LeaveConsumerGroupResponse {
+	// todo
+}
+
+func (mdc *MetaDataController) AddTopicRegisterConsumerGroup(req *pb.SubscribeTopicResponse) *pb.SubscribeTopicResponse {
+	// todo
+}
+
+func (mdc *MetaDataController) DelTopicRegisterConsumerGroup(req *pb.UnSubscribeTopicRequest) *pb.UnSubscribeTopicResponse {
+	// todo
+}
+
 func (mdc *MetaDataController) DestroyTopic(req *pb.DestroyTopicRequest) *pb.DestroyTopicResponse {
+	// todo:
+	return nil
+}
+
+func (md *MetaData) reBalance(GroupID string) error {
+	// 获取cgMu互斥锁，确保对 ConsumersGroup表 映射的读访问
+	md.cgMu.RLock()
+	defer md.cgMu.RUnlock()
+
+	// 根据给定的GroupID检索ConsumersGroup
+	g, ok := md.ConsGroup[GroupID]
+	if !ok {
+		return errors.New(Err.ErrSourceNotExist)
+	}
+
+	// 获取ConsumersGroup互斥锁，确保对其字段的独占访问
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	// 创建切片以存储需要重新平衡的主题-分区URL
+	TpUrls := make([]struct {
+		Topic, Part string // "T-P"
+		Urls        []*BrokerData
+	}, 0)
+
+	// 创建切片以存储需要从ConsumersGroup中删除的主题
+	needDeleteTps := []string{}
+
+	// 遍历ConsumersGroup的FocalTopics
+	for T, val := range g.FocalTopics {
+		// 检查主题是否已从元数据中删除
+		if i := md.getTpTerm(T); i == -1 {
+			needDeleteTps = append(needDeleteTps, T)
+			continue
+		} else if i != val.Term {
+			// 获取主题的最新元数据
+			md.tpMu.RLock()
+			tp, err := md.QueryTopic(T)
+			md.tpMu.RUnlock()
+			if err != nil {
+				// 更新ConsumersGroup中主题的分区和术语
+				val.Parts = tp.Part.Parts
+				val.Term = tp.Part.Term
+			} else {
+				continue
+			}
+		}
+
+		// 遍历主题的分区
+		for _, part := range val.Parts {
+			// 将主题-分区URL添加到TpUrls切片中
+			TpUrls = append(TpUrls, struct {
+				Topic, Part string
+				Urls        []*BrokerData
+			}{Topic: T, Part: part.Part, Urls: part.BrokerGroup.Members})
+		}
+	}
+
+	// 删除需要从ConsumersGroup中删除的主题
+	for _, tp := range needDeleteTps {
+		delete(g.FocalTopics, tp)
+	}
+
+	// 创建切片以存储ConsumersGroup的成员（消费者）
+	members := make([]string, 0, len(g.ConsumersFcPart))
+
+	for s, i := range g.ConsumersFcPart {
+		members = append(members, s)
+		*i = make([]struct {
+			Topic, Part string
+			Urls        []*BrokerData
+		}, 0, len(TpUrls)/len(g.ConsumersFcPart)+1)
+	}
+
+	// map 遍历的顺序不同 通过sort 保持重新分配的 水平和一致
+	sort.Slice(TpUrls, func(i, j int) bool {
+		if TpUrls[i].Topic == TpUrls[j].Topic {
+			return TpUrls[i].Part < TpUrls[j].Part
+		}
+		return TpUrls[i].Topic < TpUrls[j].Topic
+	})
+	sort.Slice(members, func(i, j int) bool {
+		return members[i] < members[j]
+	})
+
+	// 在消费者之间重新平衡主题-分区URL
+	for i, tpu := range TpUrls {
+		*g.ConsumersFcPart[members[i/len(members)]] = append(*g.ConsumersFcPart[members[i/len(members)]], tpu)
+	}
+
+	// 更新ConsumersGroup的GroupTerm
+	g.GroupTerm = md.addConsGroupTerm(g.GroupID)
+
 	return nil
 }

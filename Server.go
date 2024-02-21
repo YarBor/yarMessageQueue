@@ -20,14 +20,19 @@ type ServerClient struct {
 	Conn *grpc.ClientConn
 }
 
+type connections struct {
+	mu             sync.RWMutex
+	Conn           map[string]*ServerClient
+	MetadataLeader *ServerClient
+}
+
 type broker struct {
 	pb.UnimplementedMqServerCallServer
-	RaftServer           RaftServer.RaftServer
-	Url                  string
-	ID                   string
-	Key                  string
-	Conns                map[string]*ServerClient
-	MetadataLeader       *ServerClient
+	RaftServer RaftServer.RaftServer
+	Url        string
+	ID         string
+	Key        string
+
 	MetaDataController   MetaDataController
 	PartitionsController PartitionsController
 }
@@ -37,8 +42,8 @@ type broker struct {
 // 注册消费者
 func (s *broker) RegisterConsumer(_ context.Context, req *pb.RegisterConsumerRequest) (*pb.RegisterConsumerResponse, error) {
 	res := s.MetaDataController.RegisterConsumer(req)
-	if res == nil {
-		panic("Ub")
+	if res.Response.Mode == pb.Response_Success {
+		res.Credential.Key = s.Key
 	}
 	return res, nil
 }
@@ -54,7 +59,6 @@ func (s *broker) RegisterProducer(_ context.Context, req *pb.RegisterProducerReq
 
 // 创建话题
 func (s *broker) CreateTopic(_ context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
-
 	res := s.MetaDataController.CreateTopic(req)
 	if res == nil {
 		panic("Ub")
@@ -74,11 +78,6 @@ func (s *broker) DestroyTopic(_ context.Context, req *pb.DestroyTopicRequest) (*
 		panic("Ub")
 	}
 	return res, nil
-}
-
-func (s *broker) ManagePartition(_ context.Context, req *pb.ManagePartitionRequest) (*pb.ManagePartitionResponse, error) {
-	// TODO:
-	return nil, nil
 }
 
 // 注销
