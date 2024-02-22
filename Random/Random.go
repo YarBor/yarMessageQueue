@@ -2,10 +2,9 @@ package Random
 
 import (
 	"math/rand"
-	"sync/atomic"
 )
 
-const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+const letterBytes = "1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 func RandStringBytes(n int) string {
 	b := make([]byte, n)
@@ -15,8 +14,8 @@ func RandStringBytes(n int) string {
 	return string(b)
 }
 
-var autoincrementId int64
-
-func GetAutoincrementId() int64 {
-	return atomic.AddInt64(&autoincrementId, 1) - 1
-}
+//var autoincrementId int64
+//
+//func GetAutoincrementId() int64 {
+//	return atomic.AddInt64(&autoincrementId, 1) - 1
+//}

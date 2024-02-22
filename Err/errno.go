@@ -1,6 +1,6 @@
 package Err
 
-var (
+const (
 	ErrSourceNotExist        string = "ErrSourceNotExist"
 	ErrSourceAlreadyExist    string = "ErrSourceAlreadyExist"
 	ErrSourceNotEnough       string = "ErrSourceNotEnough"

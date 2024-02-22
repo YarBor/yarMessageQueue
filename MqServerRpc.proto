@@ -13,7 +13,6 @@ service MqServerCall {
   rpc UnSubscribeTopic(UnSubscribeTopicRequest) returns (UnSubscribeTopicResponse) {}
   // 注册消费者组
   rpc RegisterConsumerGroup(RegisterConsumerGroupRequest) returns (RegisterConsumerGroupResponse) {}
-  rpc UnRegisterConsumerGroup(UnRegisterConsumerGroupRequest) returns (UnRegisterConsumerGroupResponse) {}
   // 创建话题
   rpc CreateTopic(CreateTopicRequest) returns (CreateTopicResponse) {}
   rpc QueryTopic(QueryTopicRequest) returns (QueryTopicResponse) {}
@@ -72,13 +71,7 @@ message UnSubscribeTopicResponse {
   Response res = 1;
 }
 
-message UnRegisterConsumerGroupResponse {
-  Response res = 1;
-}
 
-message UnRegisterConsumerGroupRequest {
-  Credentials GroupCred = 1;
-}
 
 message GetCorrespondPartitionResponse {
   Response res = 4;
@@ -136,7 +129,6 @@ message RegisterConsumerGroupRequest {
     unSet = 0;
     Earliest = 3;
     Latest = 1;
-    None = 2;
   }
   PullOptionMode PullOption = 2;
   optional string GroupId = 3;
@@ -145,7 +137,6 @@ message RegisterConsumerGroupRequest {
 
 message RegisterConsumerGroupResponse {
   Response res = 2;
-  string Id = 3;
   int32 GroupTerm = 4;
   Credentials Cred = 1;
 }
