@@ -1652,7 +1652,213 @@ func (mdc *MetaDataController) CreditCheck(Cred *pb.Credentials) bool {
 		mdc.MD.cgMu.RLock()
 		_, ok = mdc.MD.ConsGroup[Cred.Id]
 		mdc.MD.cgMu.RUnlock()
+	case pb.Credentials_Broker:
+		mdc.MD.bkMu.RLock()
+		_, ok = mdc.MD.Brokers[Cred.Id]
+		mdc.MD.bkMu.RUnlock()
 	}
 
 	return ok
 }
+
+func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *pb.CheckSourceTermResponse {
+	if !mdc.IsLeader() {
+		return &pb.CheckSourceTermResponse{Res: ResponseErrNotLeader()}
+	}
+	if !mdc.CreditCheck(req.Self) {
+		return &pb.CheckSourceTermResponse{Res: ResponseErrSourceNotExist()}
+	}
+
+	mdc.mu.RLock()
+	defer mdc.mu.RUnlock()
+
+	switch req.Self.Identity {
+	case pb.Credentials_Producer:
+		tm, err := mdc.MD.getTpTerm(req.Topic)
+		if err != nil {
+			return &pb.CheckSourceTermResponse{Res: ErrToResponse(err)}
+		}
+		if req.TopicTerm == tm {
+			return &pb.CheckSourceTermResponse{Res: ResponseSuccess()}
+		} else {
+			mdc.MD.tpMu.RLock()
+			tp, err := mdc.MD.QueryTopic(req.Topic)
+			mdc.MD.tpMu.RUnlock()
+			if err != nil {
+				return &pb.CheckSourceTermResponse{Res: ErrToResponse(err)}
+			} else {
+				i := &pb.CheckSourceTermResponse{
+					Res:       ResponseErrPartitionChanged(),
+					TopicTerm: tp.Part.Term,
+					GroupTerm: 0,
+					TopicData: &pb.CheckSourceTermResponse_PartsData{
+						FcParts: make([]*pb.Partition, 0, len(tp.Part.Parts)),
+					},
+				}
+				for _, part := range tp.Part.Parts {
+					p := &pb.Partition{
+						Topic:   tp.Name,
+						Part:    part.Part,
+						Brokers: make([]*pb.BrokerData, 0, len(part.BrokerGroup.Members)),
+					}
+					for _, member := range part.BrokerGroup.Members {
+						p.Brokers = append(p.Brokers, &pb.BrokerData{
+							Name: member.Name,
+							Url:  member.Url,
+						})
+					}
+					i.TopicData.FcParts = append(i.TopicData.FcParts, p)
+				}
+				return i
+			}
+		}
+	case pb.Credentials_ConsumerGroup:
+		if req.ConsumerId == nil {
+			return &pb.CheckSourceTermResponse{Res: ResponseErrRequestIllegal()}
+		}
+		tm, err := mdc.MD.getConsGroupTerm(req.Self.Id)
+		if err != nil {
+			return &pb.CheckSourceTermResponse{Res: ErrToResponse(err)}
+		}
+		if req.GroupTerm == tm {
+			return &pb.CheckSourceTermResponse{
+				Res: ResponseSuccess(),
+			}
+		} else {
+			mdc.MD.cgMu.RLock()
+			group, ok := mdc.MD.ConsGroup[req.Self.Id]
+			mdc.MD.cgMu.RUnlock()
+			if !ok {
+				return &pb.CheckSourceTermResponse{Res: ResponseErrSourceNotExist()}
+			}
+
+			group.mu.RLock()
+			data, ok1 := group.ConsumersFcPart[*req.ConsumerId]
+			if !ok1 {
+				group.mu.RUnlock()
+				return &pb.CheckSourceTermResponse{Res: ResponseErrSourceNotExist()}
+			}
+			i := &pb.CheckSourceTermResponse{
+				Res:       ResponseErrPartitionChanged(),
+				GroupTerm: group.GroupTerm,
+				ConsumersData: &pb.CheckSourceTermResponse_PartsData{
+					FcParts: make([]*pb.Partition, 0, len(*data)),
+				},
+			}
+			for _, fcp := range *data {
+				p := &pb.Partition{
+					Topic:   fcp.Topic,
+					Part:    fcp.Part,
+					Brokers: make([]*pb.BrokerData, 0, len(fcp.Urls)),
+				}
+				for _, url := range fcp.Urls {
+					p.Brokers = append(p.Brokers, &pb.BrokerData{
+						Name: url.Name,
+						Url:  url.Url,
+					})
+				}
+				i.ConsumersData.FcParts = append(i.ConsumersData.FcParts, p)
+			}
+			group.mu.RUnlock()
+			return i
+		}
+
+	case pb.Credentials_Broker:
+		i := &pb.CheckSourceTermResponse{
+			Res:           nil,
+			TopicTerm:     0,
+			GroupTerm:     0,
+			ConsumersData: nil,
+			TopicData:     nil,
+		}
+		if req.Topic != "" {
+			tm, err := mdc.MD.getTpTerm(req.Topic)
+			if err != nil {
+				return &pb.CheckSourceTermResponse{Res: ErrToResponse(err)}
+			}
+			if req.TopicTerm == tm {
+				return &pb.CheckSourceTermResponse{Res: ResponseSuccess()}
+			} else {
+				mdc.MD.tpMu.RLock()
+				tp, err := mdc.MD.QueryTopic(req.Topic)
+				mdc.MD.tpMu.RUnlock()
+				if err != nil {
+					return &pb.CheckSourceTermResponse{Res: ErrToResponse(err)}
+				} else {
+					i.Res = ResponseErrPartitionChanged()
+					i.TopicTerm = tp.Part.Term
+					i.TopicData = &pb.CheckSourceTermResponse_PartsData{
+						FcParts: make([]*pb.Partition, 0, len(tp.Part.Parts)),
+					}
+
+					for _, part := range tp.Part.Parts {
+						p := &pb.Partition{
+							Topic:   tp.Name,
+							Part:    part.Part,
+							Brokers: make([]*pb.BrokerData, 0, len(part.BrokerGroup.Members)),
+						}
+						for _, member := range part.BrokerGroup.Members {
+							p.Brokers = append(p.Brokers, &pb.BrokerData{
+								Name: member.Name,
+								Url:  member.Url,
+							})
+						}
+						i.TopicData.FcParts = append(i.TopicData.FcParts, p)
+					}
+				}
+			}
+
+		}
+		if req.ConsumerId != nil {
+			tm, err := mdc.MD.getConsGroupTerm(req.Self.Id)
+			if err != nil {
+				return &pb.CheckSourceTermResponse{Res: ErrToResponse(err)}
+			}
+			if req.GroupTerm == tm {
+				return i
+			} else {
+				mdc.MD.cgMu.RLock()
+				group, ok := mdc.MD.ConsGroup[req.Self.Id]
+				mdc.MD.cgMu.RUnlock()
+				if !ok {
+					return &pb.CheckSourceTermResponse{Res: ResponseErrSourceNotExist()}
+				}
+
+				group.mu.RLock()
+				data, ok1 := group.ConsumersFcPart[*req.ConsumerId]
+				if !ok1 {
+					group.mu.RUnlock()
+					return &pb.CheckSourceTermResponse{Res: ResponseErrSourceNotExist()}
+				}
+
+				i.Res = ResponseErrPartitionChanged()
+				i.GroupTerm = group.GroupTerm
+				i.ConsumersData = &pb.CheckSourceTermResponse_PartsData{
+					FcParts: make([]*pb.Partition, 0, len(*data)),
+				}
+
+				for _, fcp := range *data {
+					p := &pb.Partition{
+						Topic:   fcp.Topic,
+						Part:    fcp.Part,
+						Brokers: make([]*pb.BrokerData, 0, len(fcp.Urls)),
+					}
+					for _, url := range fcp.Urls {
+						p.Brokers = append(p.Brokers, &pb.BrokerData{
+							Name: url.Name,
+							Url:  url.Url,
+						})
+					}
+					i.ConsumersData.FcParts = append(i.ConsumersData.FcParts, p)
+				}
+				group.mu.RUnlock()
+			}
+		}
+		return i
+	default:
+		return &pb.CheckSourceTermResponse{Res: ResponseErrRequestIllegal()}
+	}
+}
+
+// todo : Func ConsumerDisConnect   From Broker To Check , Is Because of Rebalanced or not , yes to call Unregister , no do nothing
+// todo : Func ProducerDisConnect  From Broker To Check , Is Because of Rebalanced or not , yes to call Unregister , no do nothing

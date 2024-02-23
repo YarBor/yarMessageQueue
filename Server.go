@@ -2,10 +2,12 @@ package MqServer
 
 import (
 	"MqServer/ConsumerGroup"
+	"MqServer/Err"
 	"MqServer/MessageMem"
 	"MqServer/RaftServer"
 	pb "MqServer/rpc"
 	"context"
+	"errors"
 	"google.golang.org/grpc"
 	"math"
 	"sync"
@@ -72,13 +74,6 @@ func (s *broker) QueryTopic(_ context.Context, req *pb.QueryTopicRequest) (*pb.Q
 	}
 	return res, nil
 }
-func (s *broker) DestroyTopic(_ context.Context, req *pb.DestroyTopicRequest) (*pb.DestroyTopicResponse, error) {
-	res := s.MetaDataController.DestroyTopic(req)
-	if res == nil {
-		panic("Ub")
-	}
-	return res, nil
-}
 
 // 注销
 func (s *broker) UnRegisterConsumer(_ context.Context, req *pb.UnRegisterConsumerRequest) (*pb.UnRegisterConsumerResponse, error) {
@@ -115,17 +110,24 @@ func (s *broker) Heartbeat(_ context.Context, req *pb.Ack) (*pb.Response, error)
 }
 
 func (s *broker) JoinConsumerGroup(_ context.Context, req *pb.JoinConsumerGroupRequest) (*pb.JoinConsumerGroupResponse, error) {
-	//TODO:
-	return nil, nil
+
+	if req.Cred.Key != s.Key {
+		return nil, errors.New(Err.ErrRequestIllegal)
+	}
+	res := s.MetaDataController.JoinRegisterConsumerGroup(req)
+	return res, nil
 }
 
 func (s *broker) LeaveConsumerGroup(_ context.Context, req *pb.LeaveConsumerGroupRequest) (*pb.LeaveConsumerGroupResponse, error) {
-	//TODO:
-	return nil, nil
+	if req.GroupCred.Key != s.Key || req.ConsumerCred.Key != s.Key{
+		return nil, errors.New(Err.ErrRequestIllegal)
+	}
+	res := s.MetaDataController.LeaveRegisterConsumerGroup(req)
+	return res, nil
 }
 
 func (s *broker) CheckSourceTerm(_ context.Context, req *pb.CheckSourceTermRequest) (*pb.CheckSourceTermResponse, error) {
-	//TODO:
+	req.
 	return nil, nil
 }
 
@@ -135,11 +137,6 @@ func (s *broker) GetCorrespondPartition(_ context.Context, req *pb.GetCorrespond
 }
 
 func (s *broker) RegisterConsumerGroup(_ context.Context, req *pb.RegisterConsumerGroupRequest) (*pb.RegisterConsumerGroupResponse, error) {
-	//TODO:
-	return nil, nil
-}
-
-func (s *broker) UnRegisterConsumerGroup(_ context.Context, req *pb.UnRegisterConsumerGroupRequest) (*pb.UnRegisterConsumerGroupResponse, error) {
 	//TODO:
 	return nil, nil
 }

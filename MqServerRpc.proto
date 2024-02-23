@@ -93,14 +93,19 @@ message CheckSourceTermResponse {
   Response res = 5;
   int32 TopicTerm = 1;
   int32 GroupTerm = 2;
-  repeated Partition FcParts = 3;
+  message PartsData {
+    repeated Partition FcParts = 3;
+  }
+  optional PartsData ConsumersData = 16;
+  optional PartsData TopicData = 6;
 }
 
 
 message CheckSourceTermRequest {
-  Credentials ConsCred = 4;
-  Credentials GroupCred = 3;
+  Credentials Self = 3;
+  string topic = 4;
   int32 TopicTerm = 1;
+  optional string ConsumerId = 13;
   int32 GroupTerm = 2;
 }
 
