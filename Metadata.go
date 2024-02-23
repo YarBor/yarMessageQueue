@@ -37,14 +37,13 @@ type PartitionSmD struct {
 }
 
 type TopicMD struct {
-	/* todo : add MURw , TO protect this struct slice in RW-safe
-	through mdc.MD.Topics / mdc.MD.tMu to check */
 	mu                sync.RWMutex
 	Name              string
 	Part              PartitionSmD
 	FollowerGroupID   []string
 	FollowerProducers []string
 }
+
 type ConsumerMD struct {
 	SelfId  string
 	GroupId string
@@ -248,8 +247,8 @@ func (md *MetaData) SnapShot() []byte {
 }
 
 const (
-	RegisterProducer      = "rp"
-	RegisterConsumer      = "rc"
+	RegisterProducer      = "rgp"
+	RegisterConsumer      = "rgc"
 	UnRegisterProducer    = "urp"
 	UnRegisterConsumer    = "urc"
 	CreateTopic           = "ct"
@@ -260,6 +259,8 @@ const (
 	ConsGroupFocalTopic   = "cgft"
 	ConsGroupUnFocalTopic = "cguft"
 	DestroyTopic          = "dt"
+	AddPart               = "ap"
+	RemovePart            = "rp"
 )
 
 func ErrToResponse(err error) *pb.Response {
@@ -550,7 +551,6 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 			NeedCheckClearTopics := []string{}
 			mdc.MD.tpMu.RLock()
 			for topic := range targetGroup.FocalTopics {
-				// todo : no safe
 				i, ok := mdc.MD.Topics[topic]
 				if ok {
 					i.mu.Lock()
@@ -640,7 +640,6 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 			NeedCheckClearTopics := []string{}
 			mdc.MD.tpMu.RLock()
 			for topic := range targetGroup.FocalTopics {
-				// todo : no safe
 				i, ok := mdc.MD.Topics[topic]
 				if ok {
 					i.mu.Lock()
@@ -917,10 +916,123 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 			err = errors.New(Err.ErrSourceNotExist)
 		}
 		group.mu.Unlock()
+	case AddPart:
+		data := mdCommand.data.(*struct {
+			Topic   string
+			Part    string
+			Brokers []*BrokerData
+		})
+		mdc.MD.tpMu.RLock()
+		mdc.MD.bkMu.RLock()
+		for _, bk := range data.Brokers {
+			if _, ok := mdc.MD.Brokers[bk.Name]; !ok {
+				err = errors.New(Err.ErrSourceNotExist)
+				break
+			}
+		}
+		mdc.MD.bkMu.RUnlock()
+
+		if err != nil {
+			err = errors.New(Err.ErrSourceNotExist)
+			break
+		}
+
+		mdc.MD.tpMu.RLock()
+		t, ok := mdc.MD.Topics[data.Topic]
+		mdc.MD.tpMu.RUnlock()
+
+		if !ok {
+			err = errors.New(Err.ErrSourceNotExist)
+			break
+		}
+
+		t.mu.Lock()
+		for _, part := range t.Part.Parts {
+			if part.Part == data.Part {
+				err = errors.New(Err.ErrSourceAlreadyExist)
+				goto AddFalse
+			}
+		}
+		t.Part.Parts = append(t.Part.Parts, &PartitionMD{
+			Part: data.Part,
+			BrokerGroup: BrokersGroupMD{
+				Members: append(make([]*BrokerData, 0, len(data.Brokers)), data.Brokers...),
+			},
+		})
+
+		t.Part.Term, err = mdc.MD.addTpTerm(t.Name)
+		if err != nil {
+			panic(err)
+		}
+		needReBalance := append(make([]string, 0, len(t.FollowerGroupID)), t.FollowerGroupID...)
+	AddFalse:
+		t.mu.Unlock()
+		if err != nil {
+			break
+		}
+
+		mdc.MD.cgMu.RLock()
+		for _, i := range needReBalance {
+			groupMD, ok := mdc.MD.ConsGroup[i]
+			if ok {
+				groupMD.mu.Lock()
+				_ = mdc.MD.reBalance(groupMD)
+				groupMD.mu.Unlock()
+			}
+		}
+		mdc.MD.cgMu.RUnlock()
+	case
+		RemovePart:
+		data := mdCommand.data.(struct {
+			Topic string
+			Part  string
+		})
+
+		mdc.MD.tpMu.RLock()
+		t, ok := mdc.MD.Topics[data.Topic]
+		mdc.MD.tpMu.RUnlock()
+		if !ok {
+			err = errors.New(Err.ErrSourceNotExist)
+		}
+
+		ok = false
+		t.mu.Lock()
+
+		for i, part := range t.Part.Parts {
+			if part.Part == data.Part {
+				ok = true
+				t.Part.Parts = append(t.Part.Parts[:i], t.Part.Parts[i+1:]...)
+			}
+		}
+		if !ok {
+			err = errors.New(Err.ErrSourceNotExist)
+			goto RemoveFalse
+		}
+		t.Part.Term, err = mdc.MD.addTpTerm(t.Name)
+		if err != nil {
+			panic(err)
+		}
+		needReBalance := append(make([]string, 0, len(t.FollowerGroupID)), t.FollowerGroupID...)
+
+	RemoveFalse:
+		t.mu.Unlock()
+		if err != nil {
+			break
+		}
+
+		mdc.MD.cgMu.RLock()
+		for _, i := range needReBalance {
+			groupMD, ok := mdc.MD.ConsGroup[i]
+			if ok {
+				groupMD.mu.Lock()
+				_ = mdc.MD.reBalance(groupMD)
+				groupMD.mu.Unlock()
+			}
+		}
+		mdc.MD.cgMu.RUnlock()
 	}
 
 	return err, retData
-	// todo:
 }
 func (psmd *PartitionSmD) Copy() *PartitionSmD {
 	a := PartitionSmD{
@@ -1032,7 +1144,6 @@ func (mdc *MetaDataController) commit(mode string, data interface{}) (error, int
 }
 
 func (mdc *MetaDataController) QueryTopic(req *pb.QueryTopicRequest) *pb.QueryTopicResponse {
-	// todo:
 	if mdc.IsLeader() == false {
 		return &pb.QueryTopicResponse{Response: ResponseErrNotLeader()}
 	}
@@ -1068,7 +1179,6 @@ func (mdc *MetaDataController) QueryTopic(req *pb.QueryTopicRequest) *pb.QueryTo
 }
 
 func (mdc *MetaDataController) RegisterConsumer(req *pb.RegisterConsumerRequest) *pb.RegisterConsumerResponse {
-	// todo:
 	if mdc.IsLeader() == false {
 		return &pb.RegisterConsumerResponse{Response: ResponseErrNotLeader()}
 	}
@@ -1096,7 +1206,6 @@ func (mdc *MetaDataController) RegisterConsumer(req *pb.RegisterConsumerRequest)
 }
 
 func (mdc *MetaDataController) UnRegisterConsumer(req *pb.UnRegisterConsumerRequest) *pb.UnRegisterConsumerResponse {
-	// todo:
 	if mdc.IsLeader() == false {
 		return &pb.UnRegisterConsumerResponse{Response: ResponseErrNotLeader()}
 	}
@@ -1131,11 +1240,9 @@ func (mdc *MetaDataController) UnRegisterProducer(req *pb.UnRegisterProducerRequ
 	err, _ = mdc.commit(
 		UnRegisterProducer, &req.Credential.Id)
 	return &pb.UnRegisterProducerResponse{Response: ErrToResponse(err)}
-	// todo:
 }
 
 func (mdc *MetaDataController) RegisterConsumerGroup(req *pb.RegisterConsumerGroupRequest) *pb.RegisterConsumerGroupResponse {
-	// todo
 	if mdc.IsLeader() == false {
 		return &pb.RegisterConsumerGroupResponse{
 			Res: ResponseErrNotLeader(),
@@ -1190,11 +1297,9 @@ reHash:
 
 // 最后一个组员注销后自动注销
 //func (mdc *MetaDataController) UnRegisterConsumerGroup(req *pb.UnRegisterConsumerGroupRequest) *pb.UnRegisterConsumerGroupResponse {
-//	// todo
 //}
 
 func (mdc *MetaDataController) JoinRegisterConsumerGroup(req *pb.JoinConsumerGroupRequest) *pb.JoinConsumerGroupResponse {
-	// todo
 	if mdc.IsLeader() == false {
 		return &pb.JoinConsumerGroupResponse{Res: ResponseErrNotLeader()}
 	}
@@ -1209,11 +1314,7 @@ func (mdc *MetaDataController) JoinRegisterConsumerGroup(req *pb.JoinConsumerGro
 		return &pb.JoinConsumerGroupResponse{Res: ResponseErrSourceNotExist()}
 	}
 
-	mdc.MD.cMu.RLock()
-	_, ok = mdc.MD.Consumers[req.ConsumerGroupId]
-	mdc.MD.cMu.RUnlock()
-
-	if !ok {
+	if !mdc.CreditCheck(req.Cred) {
 		return &pb.JoinConsumerGroupResponse{Res: ResponseErrSourceNotExist()}
 	}
 
@@ -1242,26 +1343,13 @@ func (mdc *MetaDataController) JoinRegisterConsumerGroup(req *pb.JoinConsumerGro
 }
 
 func (mdc *MetaDataController) LeaveRegisterConsumerGroup(req *pb.LeaveConsumerGroupRequest) *pb.LeaveConsumerGroupResponse {
-	// todo
 	if mdc.IsLeader() == false {
 		return &pb.LeaveConsumerGroupResponse{Res: ResponseErrNotLeader()}
 	}
 	mdc.mu.RLock()
 	defer mdc.mu.RUnlock()
 
-	mdc.MD.cgMu.RLock()
-	_, ok := mdc.MD.ConsGroup[req.GroupCred.Id]
-	mdc.MD.cgMu.RUnlock()
-
-	if !ok {
-		return &pb.LeaveConsumerGroupResponse{Res: ResponseErrSourceNotExist()}
-	}
-
-	mdc.MD.cMu.RLock()
-	_, ok = mdc.MD.Consumers[req.GroupCred.Id]
-	mdc.MD.cMu.RUnlock()
-
-	if !ok {
+	if !mdc.CreditCheck(req.ConsumerCred) || !mdc.CreditCheck(req.GroupCred) {
 		return &pb.LeaveConsumerGroupResponse{Res: ResponseErrSourceNotExist()}
 	}
 
@@ -1283,7 +1371,6 @@ func (mdc *MetaDataController) LeaveRegisterConsumerGroup(req *pb.LeaveConsumerG
 }
 
 func (mdc *MetaDataController) AddTopicRegisterConsumerGroup(req *pb.SubscribeTopicRequest) *pb.SubscribeTopicResponse {
-	// todo
 	if !mdc.IsLeader() {
 		return &pb.SubscribeTopicResponse{
 			Res: ResponseErrNotLeader(),
@@ -1292,11 +1379,7 @@ func (mdc *MetaDataController) AddTopicRegisterConsumerGroup(req *pb.SubscribeTo
 	mdc.mu.RLock()
 	defer mdc.mu.RUnlock()
 
-	mdc.MD.cgMu.RLock()
-	_, ok := mdc.MD.ConsGroup[req.CGCred.Id]
-	mdc.MD.cgMu.RUnlock()
-
-	if !ok {
+	if !mdc.CreditCheck(req.CGCred) {
 		return &pb.SubscribeTopicResponse{Res: ResponseErrSourceNotExist()}
 	}
 
@@ -1326,11 +1409,7 @@ func (mdc *MetaDataController) DelTopicRegisterConsumerGroup(req *pb.UnSubscribe
 	mdc.mu.RLock()
 	defer mdc.mu.RUnlock()
 
-	mdc.MD.cgMu.RLock()
-	_, ok := mdc.MD.ConsGroup[req.CGCred.Id]
-	mdc.MD.cgMu.RUnlock()
-
-	if !ok {
+	if !mdc.CreditCheck(req.CGCred) {
 		return &pb.UnSubscribeTopicResponse{Res: ResponseErrSourceNotExist()}
 	}
 
@@ -1351,10 +1430,9 @@ func (mdc *MetaDataController) DelTopicRegisterConsumerGroup(req *pb.UnSubscribe
 	}
 }
 
-func (mdc *MetaDataController) DestroyTopic(req *pb.DestroyTopicRequest) *pb.DestroyTopicResponse {
-	// todo:
-	return nil
-}
+//func (mdc *MetaDataController) DestroyTopic(req *pb.DestroyTopicRequest) *pb.DestroyTopicResponse {
+//	return nil
+//}
 
 // hold g.mu.Lock()
 func (md *MetaData) reBalance(g *ConsumersGroupMD) error {
@@ -1455,4 +1533,126 @@ func (md *MetaData) reBalance(g *ConsumersGroupMD) error {
 		return err
 	}
 	return nil
+}
+
+func (mdc *MetaDataController) AddPart(req *pb.AddPartRequest) *pb.AddPartResponse {
+	if !mdc.IsLeader() {
+		return &pb.AddPartResponse{Res: ResponseErrNotLeader()}
+	}
+	mdc.mu.RLock()
+	defer mdc.mu.RUnlock()
+
+	if mdc.CreditCheck(req.Cred) == false {
+		return &pb.AddPartResponse{Res: ResponseErrSourceNotExist()}
+	}
+
+	var err error
+	mdc.MD.bkMu.RLock()
+	for _, bk := range req.Part.Brokers {
+		if _, ok := mdc.MD.Brokers[bk.Name]; !ok {
+			err = errors.New(Err.ErrSourceNotExist)
+			break
+		}
+	}
+	mdc.MD.bkMu.RUnlock()
+
+	if err != nil {
+		return &pb.AddPartResponse{Res: ErrToResponse(err)}
+	}
+
+	mdc.MD.tpMu.RLock()
+	t, ok := mdc.MD.Topics[req.Part.Topic]
+	mdc.MD.tpMu.RUnlock()
+	if !ok {
+		return &pb.AddPartResponse{Res: ResponseErrSourceNotExist()}
+	}
+
+	t.mu.RLock()
+	for _, part := range t.Part.Parts {
+		if part.Part == req.Part.Part {
+			err = errors.New(Err.ErrSourceAlreadyExist)
+			break
+		}
+	}
+	t.mu.RUnlock()
+	if err != nil {
+		return &pb.AddPartResponse{Res: ErrToResponse(err)}
+	}
+
+	data := &struct {
+		Topic   string
+		Part    string
+		Brokers []*BrokerData
+	}{}
+	data.Topic = req.Part.Topic
+	data.Part = req.Part.Part
+	for _, brokerData := range req.Part.Brokers {
+		data.Brokers = append(data.Brokers, &BrokerData{
+			Name: brokerData.Name,
+			Url:  brokerData.Url,
+		})
+	}
+	err, _ = mdc.commit(AddPart, data)
+	return &pb.AddPartResponse{Res: ErrToResponse(err)}
+}
+
+func (mdc *MetaDataController) RemovePart(req *pb.RemovePartRequest) *pb.RemovePartResponse {
+	if !mdc.IsLeader() {
+		return &pb.RemovePartResponse{Res: ResponseErrNotLeader()}
+	}
+	mdc.mu.RLock()
+	defer mdc.mu.RUnlock()
+
+	if !mdc.CreditCheck(req.Cred) {
+		return &pb.RemovePartResponse{Res: ResponseErrSourceNotExist()}
+	}
+	mdc.MD.tpMu.RLock()
+	tp, ok := mdc.MD.Topics[req.Topic]
+	mdc.MD.tpMu.RUnlock()
+	if !ok {
+		return &pb.RemovePartResponse{Res: ResponseErrSourceNotExist()}
+	}
+
+	ok = false
+	tp.mu.RLock()
+	for _, part := range tp.Part.Parts {
+		if part.Part == req.Part {
+			ok = true
+			break
+		}
+	}
+	tp.mu.RUnlock()
+
+	if !ok {
+		return &pb.RemovePartResponse{Res: ResponseErrSourceNotExist()}
+	}
+	data := &struct {
+		Topic string
+		Part  string
+	}{}
+	data.Topic = req.Topic
+	data.Part = req.Part
+	err, _ := mdc.commit(RemovePart, data)
+	return &pb.RemovePartResponse{Res: ErrToResponse(err)}
+}
+
+func (mdc *MetaDataController) CreditCheck(Cred *pb.Credentials) bool {
+	ok := false
+
+	switch Cred.Identity {
+	case pb.Credentials_Producer:
+		mdc.MD.pMu.RLock()
+		_, ok = mdc.MD.Producers[Cred.Id]
+		mdc.MD.pMu.RUnlock()
+	case pb.Credentials_Consumer:
+		mdc.MD.cMu.RLock()
+		_, ok = mdc.MD.Consumers[Cred.Id]
+		mdc.MD.cMu.RUnlock()
+	case pb.Credentials_ConsumerGroup:
+		mdc.MD.cgMu.RLock()
+		_, ok = mdc.MD.ConsGroup[Cred.Id]
+		mdc.MD.cgMu.RUnlock()
+	}
+
+	return ok
 }

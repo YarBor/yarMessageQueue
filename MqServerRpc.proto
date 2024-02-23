@@ -46,7 +46,7 @@ message AddPartResponse {
 
 message RemovePartRequest {
   Credentials Cred = 1;
-  Partition part = 3;
+  string Topic = 2 ; string Part = 3 ;
 }
 
 message RemovePartResponse {
