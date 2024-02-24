@@ -110,7 +110,6 @@ func (s *broker) Heartbeat(_ context.Context, req *pb.Ack) (*pb.Response, error)
 }
 
 func (s *broker) JoinConsumerGroup(_ context.Context, req *pb.JoinConsumerGroupRequest) (*pb.JoinConsumerGroupResponse, error) {
-
 	if req.Cred.Key != s.Key {
 		return nil, errors.New(Err.ErrRequestIllegal)
 	}
@@ -119,7 +118,7 @@ func (s *broker) JoinConsumerGroup(_ context.Context, req *pb.JoinConsumerGroupR
 }
 
 func (s *broker) LeaveConsumerGroup(_ context.Context, req *pb.LeaveConsumerGroupRequest) (*pb.LeaveConsumerGroupResponse, error) {
-	if req.GroupCred.Key != s.Key || req.ConsumerCred.Key != s.Key{
+	if req.GroupCred.Key != s.Key || req.ConsumerCred.Key != s.Key {
 		return nil, errors.New(Err.ErrRequestIllegal)
 	}
 	res := s.MetaDataController.LeaveRegisterConsumerGroup(req)
@@ -127,14 +126,16 @@ func (s *broker) LeaveConsumerGroup(_ context.Context, req *pb.LeaveConsumerGrou
 }
 
 func (s *broker) CheckSourceTerm(_ context.Context, req *pb.CheckSourceTermRequest) (*pb.CheckSourceTermResponse, error) {
-	req.
-	return nil, nil
+	if req.Self.Key != s.Key {
+		return nil, errors.New(Err.ErrRequestIllegal)
+	}
+	return s.MetaDataController.CheckSourceTerm(req), nil
 }
 
-func (s *broker) GetCorrespondPartition(_ context.Context, req *pb.GetCorrespondPartitionRequest) (*pb.GetCorrespondPartitionResponse, error) {
-	//TODO:
-	return nil, nil
-}
+//func (s *broker) GetCorrespondPartition(_ context.Context, req *pb.GetCorrespondPartitionRequest) (*pb.GetCorrespondPartitionResponse, error) {
+//	//TODO:
+//	return nil, nil
+//}
 
 func (s *broker) RegisterConsumerGroup(_ context.Context, req *pb.RegisterConsumerGroupRequest) (*pb.RegisterConsumerGroupResponse, error) {
 	//TODO:

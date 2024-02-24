@@ -11,6 +11,7 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type MetaData struct {
@@ -58,8 +59,16 @@ type ProducerMD struct {
 	MaxPushMessageSize int32
 }
 
+const (
+	BrokerMode_BrokerConnected    = 1
+	BrokerMode_BrokerDisconnected = 0
+)
+
 type BrokerMD struct {
 	BrokerData
+	// All Atomic operations
+	TimeoutTime  int64
+	Mode         int32
 	PartitionNum uint32
 }
 
@@ -268,6 +277,8 @@ func ErrToResponse(err error) *pb.Response {
 		return ResponseSuccess()
 	}
 	switch err.Error() {
+	case Err.ErrFailure:
+		return ResponseFailure()
 	case Err.ErrSourceNotExist:
 		return ResponseErrSourceNotExist()
 	case Err.ErrSourceAlreadyExist:
@@ -370,10 +381,16 @@ func (md *MetaData) GetFreeBrokers(brokersNum int32) ([]*BrokerData, error) {
 		bks = append(bks, bk)
 	}
 	sort.Slice(bks, func(i, j int) bool {
-		return atomic.LoadUint32(&bks[i].PartitionNum) < atomic.LoadUint32(&bks[j].PartitionNum)
+		modeI := atomic.LoadInt32(&bks[i].Mode)
+		modeJ := atomic.LoadInt32(&bks[j].Mode)
+		if modeI == modeJ {
+			return atomic.LoadUint32(&bks[i].PartitionNum) < atomic.LoadUint32(&bks[j].PartitionNum)
+		}
+		return modeI < modeJ
 	})
 	tmp := make([]*BrokerData, brokersNum)
 	for i := range tmp {
+		atomic.AddUint32(&bks[i%len(bks)].PartitionNum, 1)
 		tmp[i] = &bks[i%len(bks)].BrokerData
 	}
 	return tmp, nil
@@ -493,13 +510,56 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 
 	case
 		CreateTopic:
-		p := mdCommand.data.(*TopicMD)
+		data := mdCommand.data.(*struct {
+			Name         string
+			RequestParts []struct {
+				PartitionName     string
+				ReplicationNumber int32
+			}
+		})
 		mdc.MD.tpMu.Lock()
-		if _, ok := mdc.MD.Topics[p.Name]; ok {
+		if _, ok := mdc.MD.Topics[data.Name]; ok {
 			err = errors.New(Err.ErrSourceAlreadyExist)
 		} else {
-			mdc.MD.Topics[p.Name] = p
+			tp := TopicMD{
+				Name: data.Name,
+				Part: PartitionSmD{
+					Term:  0,
+					Parts: make([]*PartitionMD, 0, len(data.RequestParts)),
+				},
+				FollowerGroupID:   make([]string, 0),
+				FollowerProducers: make([]string, 0),
+			}
+
+			tp.Part.Term, err = mdc.MD.createTpTerm(tp.Name)
+			if err != nil {
+				panic(err)
+			}
+
+			for _, details := range data.RequestParts {
+				bg := BrokersGroupMD{}
+				bg.Members, err = mdc.MD.GetFreeBrokers(details.ReplicationNumber)
+				if err != nil {
+
+					mdc.MD.ttMu.Lock()
+					delete(mdc.MD.TpTerm, tp.Name)
+					mdc.MD.ttMu.Unlock()
+
+					goto CreateFail
+				}
+				tp.Part.Parts = append(tp.Part.Parts, &PartitionMD{
+					Part:        details.PartitionName,
+					BrokerGroup: bg,
+				})
+			}
+
+			if err != nil {
+				panic("Ub")
+			}
+			retData = tp.Copy()
+			mdc.MD.Topics[tp.Name] = &tp
 		}
+	CreateFail:
 		mdc.MD.tpMu.Unlock()
 	case
 		UnRegisterConsumer:
@@ -703,6 +763,9 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 			}
 		}
 		isTopicClear := topic.IsClear()
+		if !isTopicClear {
+			_, _ = mdc.MD.addTpTerm(topic.Name)
+		}
 		topic.mu.Unlock()
 
 		// Remove Topic from TP-MAP and TP-Term-MAP
@@ -1071,43 +1134,50 @@ func (mdc *MetaDataController) CreateTopic(req *pb.CreateTopicRequest) *pb.Creat
 	}
 	mdc.mu.RLock()
 	defer mdc.mu.RUnlock()
+	if err := mdc.MD.BrokersSourceCheck(); err != nil {
+		return &pb.CreateTopicResponse{Response: ErrToResponse(err)}
+	}
 	mdc.MD.tpMu.RLock()
 	err := mdc.MD.CheckTopic(req.Topic)
 	mdc.MD.tpMu.RUnlock()
+
 	if err != nil {
 		return &pb.CreateTopicResponse{
 			Response: ErrToResponse(err),
 		}
 	}
-	tp := TopicMD{
-		Name:            req.Topic,
-		FollowerGroupID: make([]string, 0),
-		Part: PartitionSmD{
-			Term:  0,
-			Parts: make([]*PartitionMD, 0, len(req.Partition)),
-		},
-	}
+
+	var tp *TopicMD
 	for _, details := range req.Partition {
 		if details.ReplicationNumber == 0 {
 			return &pb.CreateTopicResponse{Response: ResponseErrRequestIllegal()}
 		}
-		bg := BrokersGroupMD{}
-		bg.Members, err = mdc.MD.GetFreeBrokers(details.ReplicationNumber)
-		if err != nil {
-			return &pb.CreateTopicResponse{
-				Response: ErrToResponse(err),
-			}
-		}
-		tp.Part.Parts = append(tp.Part.Parts, &PartitionMD{
-			Part:        details.PartitionName,
-			BrokerGroup: bg,
-		})
 	}
 
-	err, _ = mdc.commit(
-		CreateTopic, &tp)
-	if err != nil {
+	info := struct {
+		Name         string
+		RequestParts []struct {
+			PartitionName     string
+			ReplicationNumber int32
+		}
+	}{
+		Name: req.Topic,
+		RequestParts: make([]struct {
+			PartitionName     string
+			ReplicationNumber int32
+		}, 0, len(req.Partition)),
+	}
+
+	for _, details := range req.Partition {
+		info.RequestParts = append(info.RequestParts, struct {
+			PartitionName     string
+			ReplicationNumber int32
+		}{PartitionName: details.PartitionName, ReplicationNumber: details.ReplicationNumber})
+	}
+	if err, data := mdc.commit(CreateTopic, &info); err != nil {
 		return &pb.CreateTopicResponse{Response: ErrToResponse(err)}
+	} else {
+		tp = data.(*TopicMD)
 	}
 
 	res := &pb.CreateTopicResponse{Response: ResponseSuccess(), Tp: &pb.TpData{
@@ -1636,6 +1706,7 @@ func (mdc *MetaDataController) RemovePart(req *pb.RemovePartRequest) *pb.RemoveP
 	return &pb.RemovePartResponse{Res: ErrToResponse(err)}
 }
 
+// Need mdc.mu.Rlock()
 func (mdc *MetaDataController) CreditCheck(Cred *pb.Credentials) bool {
 	ok := false
 
@@ -1860,5 +1931,65 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 	}
 }
 
+func (md *MetaData) BrokersSourceCheck() error {
+	md.bkMu.RLock()
+	defer md.bkMu.RUnlock()
+	count := 0
+	for _, brokerMD := range md.Brokers {
+		if brokerMD.Mode == BrokerMode_BrokerDisconnected {
+			count++
+		}
+	}
+	if count > len(md.Brokers) {
+		return errors.New(Err.ErrFailure)
+	}
+	return nil
+}
+
+func (mdc *MetaDataController) CheckBrokersAlive() {
+	for {
+		if mdc.mu.TryRLock() {
+			if mdc.MD.bkMu.TryRLock() {
+				now := time.Now().UnixMilli()
+				for _, brokerMD := range mdc.MD.Brokers {
+					if atomic.LoadInt64(&brokerMD.TimeoutTime) < now {
+						// >> Mey here Race condition
+						atomic.StoreInt32(&brokerMD.Mode, BrokerMode_BrokerDisconnected)
+						// For Race
+						if atomic.LoadInt64(&brokerMD.TimeoutTime) > now {
+							atomic.StoreInt32(&brokerMD.Mode, BrokerMode_BrokerConnected)
+						}
+					}
+
+				}
+				mdc.MD.bkMu.RUnlock()
+			}
+			mdc.mu.RUnlock()
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // todo : Func ConsumerDisConnect   From Broker To Check , Is Because of Rebalanced or not , yes to call Unregister , no do nothing
 // todo : Func ProducerDisConnect  From Broker To Check , Is Because of Rebalanced or not , yes to call Unregister , no do nothing
+
+func (mdc *MetaDataController) ConsumerDisConnect(info *pb.DisConnectInfo) *pb.Response {
+
+}
+
+// Producer 的记录直接就不存了？
+func (mdc *MetaDataController) ProducerDisConnect(info *pb.DisConnectInfo) *pb.Response {
+	if !mdc.IsLeader() {
+		return ResponseErrNotLeader()
+	}
+
+	mdc.mu.RLock()
+	defer mdc.mu.RUnlock()
+
+	if mdc.CreditCheck(info.BrokerInfo) && mdc.CreditCheck(info.TargetInfo) {
+		return ResponseErrSourceNotExist()
+	}
+
+	go mdc.UnRegisterProducer(&pb.UnRegisterProducerRequest{Credential: info.TargetInfo})
+	return ResponseSuccess()
+}

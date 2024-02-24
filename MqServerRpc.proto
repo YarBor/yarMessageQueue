@@ -7,7 +7,7 @@ service MqServerCall {
   rpc JoinConsumerGroup(JoinConsumerGroupRequest)  returns (JoinConsumerGroupResponse) {}
   rpc LeaveConsumerGroup(LeaveConsumerGroupRequest) returns (LeaveConsumerGroupResponse) {}
   rpc CheckSourceTerm(CheckSourceTermRequest) returns (CheckSourceTermResponse) {}
-  rpc GetCorrespondPartition(GetCorrespondPartitionRequest) returns (GetCorrespondPartitionResponse) {}
+  //  rpc GetCorrespondPartition(GetCorrespondPartitionRequest) returns (GetCorrespondPartitionResponse) {}
   //订阅
   rpc SubscribeTopic(SubscribeTopicRequest) returns (SubscribeTopicResponse) {}
   rpc UnSubscribeTopic(UnSubscribeTopicRequest) returns (UnSubscribeTopicResponse) {}
@@ -29,10 +29,17 @@ service MqServerCall {
 
   // 客户端和server之间的心跳
   rpc Heartbeat(Ack) returns (Response) {}
+  rpc ConsumerDisConnect(DisConnectInfo) returns (Response) {}
+  rpc ProducerDisConnect(DisConnectInfo) returns (Response) {}
   // 拉取消息
   rpc PullMessage(PullMessageRequest) returns (PullMessageResponse) {}
   // 推送消息
   rpc PushMessage(PushMessageRequest) returns (PushMessageResponse) {}
+}
+
+message DisConnectInfo {
+  Credentials BrokerInfo = 1;
+  Credentials TargetInfo = 2;
 }
 
 message AddPartRequest {
@@ -73,21 +80,21 @@ message UnSubscribeTopicResponse {
 
 
 
-message GetCorrespondPartitionResponse {
-  Response res = 4;
-  int32 TopicTerm = 1;
-  int32 GroupTerm = 2;
-  repeated Partition FcParts = 3;
-}
+//message GetCorrespondPartitionResponse {
+//  Response res = 4;
+//  int32 TopicTerm = 1;
+//  int32 GroupTerm = 2;
+//  repeated Partition FcParts = 3;
+//}
 
-
-message GetCorrespondPartitionRequest {
-  Credentials ConsCred = 4;
-  Credentials GroupCred = 3;
-  int32 TopicTerm = 1;
-  int32 GroupTerm = 2;
-}
-
+//
+//message GetCorrespondPartitionRequest {
+//  Credentials ConsCred = 4;
+//  Credentials GroupCred = 3;
+//  int32 TopicTerm = 1;
+//  int32 GroupTerm = 2;
+//}
+//
 
 message CheckSourceTermResponse {
   Response res = 5;
@@ -163,7 +170,7 @@ message Credentials {
 
 message Ack {
   Credentials ConsCred = 1;
-  Credentials GroupCred = 3;
+  optional Credentials GroupCred = 3;
   // Consumer's receive message offset
   optional int32 offset = 2;
 }
