@@ -4,15 +4,21 @@ package MqServer;
 option go_package = "./rpc";
 
 service MqServerCall {
-  rpc JoinConsumerGroup(JoinConsumerGroupRequest)  returns (JoinConsumerGroupResponse) {}
-  rpc LeaveConsumerGroup(LeaveConsumerGroupRequest) returns (LeaveConsumerGroupResponse) {}
-  rpc CheckSourceTerm(CheckSourceTermRequest) returns (CheckSourceTermResponse) {}
-  //  rpc GetCorrespondPartition(GetCorrespondPartitionRequest) returns (GetCorrespondPartitionResponse) {}
+  rpc JoinConsumerGroup(JoinConsumerGroupRequest)
+      returns (JoinConsumerGroupResponse) {}
+  rpc LeaveConsumerGroup(LeaveConsumerGroupRequest)
+      returns (LeaveConsumerGroupResponse) {}
+  rpc CheckSourceTerm(CheckSourceTermRequest)
+      returns (CheckSourceTermResponse) {}
+  //  rpc GetCorrespondPartition(GetCorrespondPartitionRequest) returns
+  //  (GetCorrespondPartitionResponse) {}
   //订阅
   rpc SubscribeTopic(SubscribeTopicRequest) returns (SubscribeTopicResponse) {}
-  rpc UnSubscribeTopic(UnSubscribeTopicRequest) returns (UnSubscribeTopicResponse) {}
+  rpc UnSubscribeTopic(UnSubscribeTopicRequest)
+      returns (UnSubscribeTopicResponse) {}
   // 注册消费者组
-  rpc RegisterConsumerGroup(RegisterConsumerGroupRequest) returns (RegisterConsumerGroupResponse) {}
+  rpc RegisterConsumerGroup(RegisterConsumerGroupRequest)
+      returns (RegisterConsumerGroupResponse) {}
   // 创建话题
   rpc CreateTopic(CreateTopicRequest) returns (CreateTopicResponse) {}
   rpc QueryTopic(QueryTopicRequest) returns (QueryTopicResponse) {}
@@ -21,11 +27,15 @@ service MqServerCall {
   rpc AddPart(AddPartRequest) returns (AddPartResponse) {}
   rpc RemovePart(RemovePartRequest) returns (RemovePartResponse) {}
   // 注册
-  rpc RegisterConsumer(RegisterConsumerRequest) returns (RegisterConsumerResponse) {}
-  rpc RegisterProducer(RegisterProducerRequest) returns (RegisterProducerResponse) {}
+  rpc RegisterConsumer(RegisterConsumerRequest)
+      returns (RegisterConsumerResponse) {}
+  rpc RegisterProducer(RegisterProducerRequest)
+      returns (RegisterProducerResponse) {}
   // 注销
-  rpc UnRegisterConsumer(UnRegisterConsumerRequest) returns (UnRegisterConsumerResponse) {}
-  rpc UnRegisterProducer(UnRegisterProducerRequest) returns (UnRegisterProducerResponse) {}
+  rpc UnRegisterConsumer(UnRegisterConsumerRequest)
+      returns (UnRegisterConsumerResponse) {}
+  rpc UnRegisterProducer(UnRegisterProducerRequest)
+      returns (UnRegisterProducerResponse) {}
 
   // 客户端和server之间的心跳
   rpc Heartbeat(Ack) returns (Response) {}
@@ -47,48 +57,39 @@ message AddPartRequest {
   Partition part = 3;
 }
 
-message AddPartResponse {
-  Response res = 1;
-}
+message AddPartResponse { Response res = 1; }
 
 message RemovePartRequest {
   Credentials Cred = 1;
-  string Topic = 2 ; string Part = 3 ;
+  string Topic = 2;
+  string Part = 3;
 }
 
-message RemovePartResponse {
-  Response res = 1 ;
-}
+message RemovePartResponse { Response res = 1; }
 
 message SubscribeTopicRequest {
   Credentials CGCred = 4;
   string Tp = 3;
 }
 
-message SubscribeTopicResponse {
-  Response res = 1;
-}
+message SubscribeTopicResponse { Response res = 1; }
 
 message UnSubscribeTopicRequest {
   Credentials CGCred = 4;
   string Tp = 3;
 }
 
-message UnSubscribeTopicResponse {
-  Response res = 1;
-}
+message UnSubscribeTopicResponse { Response res = 1; }
 
-
-
-//message GetCorrespondPartitionResponse {
-//  Response res = 4;
-//  int32 TopicTerm = 1;
-//  int32 GroupTerm = 2;
-//  repeated Partition FcParts = 3;
-//}
+// message GetCorrespondPartitionResponse {
+//   Response res = 4;
+//   int32 TopicTerm = 1;
+//   int32 GroupTerm = 2;
+//   repeated Partition FcParts = 3;
+// }
 
 //
-//message GetCorrespondPartitionRequest {
+// message GetCorrespondPartitionRequest {
 //  Credentials ConsCred = 4;
 //  Credentials GroupCred = 3;
 //  int32 TopicTerm = 1;
@@ -100,20 +101,23 @@ message CheckSourceTermResponse {
   Response res = 5;
   int32 TopicTerm = 1;
   int32 GroupTerm = 2;
-  message PartsData {
-    repeated Partition FcParts = 3;
-  }
+  message PartsData { repeated Partition FcParts = 3; }
   optional PartsData ConsumersData = 16;
   optional PartsData TopicData = 6;
 }
 
-
 message CheckSourceTermRequest {
+  message TopicCheck {
+    string topic = 4;
+    int32 TopicTerm = 1;
+  }
+  message ConsumerCheck {
+    optional string ConsumerId = 13;
+    int32 GroupTerm = 2;
+  }
   Credentials Self = 3;
-  string topic = 4;
-  int32 TopicTerm = 1;
-  optional string ConsumerId = 13;
-  int32 GroupTerm = 2;
+  optional TopicCheck TopicData = 4;
+  optional ConsumerCheck ConsumerData = 16;
 }
 
 message LeaveConsumerGroupRequest {
@@ -121,16 +125,14 @@ message LeaveConsumerGroupRequest {
   Credentials ConsumerCred = 2;
 }
 
-message LeaveConsumerGroupResponse {
-  Response res = 1;
-}
+message LeaveConsumerGroupResponse { Response res = 1; }
 
 message JoinConsumerGroupRequest {
   Credentials Cred = 1;
   string ConsumerGroupId = 2;
 }
 
-message JoinConsumerGroupResponse{
+message JoinConsumerGroupResponse {
   Response res = 1;
   repeated Partition FcParts = 3;
   int32 GroupTerm = 4;
@@ -146,14 +148,11 @@ message RegisterConsumerGroupRequest {
   optional string GroupId = 3;
 }
 
-
 message RegisterConsumerGroupResponse {
   Response res = 2;
   int32 GroupTerm = 4;
   Credentials Cred = 1;
 }
-
-
 
 // 凭证/通过这个找到对应的Consumer
 message Credentials {
@@ -179,7 +178,7 @@ message Response {
   enum Mode {
     Success = 0;
     Failure = 1;
-    NotServe = 9 ;
+    NotServe = 9;
     ErrTimeout = 8;
     ErrNotLeader = 7;
     ErrSourceNotExist = 2;
@@ -197,7 +196,7 @@ message RegisterConsumerRequest {
 }
 
 message BrokerData {
-  string Name = 1;
+  string Id = 1;
   string Url = 2;
 }
 
@@ -257,26 +256,26 @@ message QueryTopicResponse {
   int32 TopicTerm = 3;
 }
 
-message DestroyTopicRequest {string Topic = 1;}
+message DestroyTopicRequest { string Topic = 1; }
 
-message DestroyTopicResponse {Response response = 1;}
+message DestroyTopicResponse { Response response = 1; }
 
-message UnRegisterConsumerRequest {Credentials credential = 1;}
+message UnRegisterConsumerRequest { Credentials credential = 1; }
 
-message UnRegisterConsumerResponse {Response response = 1;}
+message UnRegisterConsumerResponse { Response response = 1; }
 
-message UnRegisterProducerRequest {Credentials credential = 1;}
+message UnRegisterProducerRequest { Credentials credential = 1; }
 
-message UnRegisterProducerResponse {Response response = 1;}
+message UnRegisterProducerResponse { Response response = 1; }
 
-message Message {bytes Message = 1;}
+message Message { bytes Message = 1; }
 
 message PushMessageRequest {
   Credentials credential = 1;
   repeated Message Msgs = 2;
 }
 
-message PushMessageResponse {Response response = 1;}
+message PushMessageResponse { Response response = 1; }
 
 message PullMessageRequest {
   Ack ack = 1;
@@ -287,4 +286,3 @@ message PullMessageResponse {
   Response response = 1;
   repeated Message Msgs = 2;
 }
-

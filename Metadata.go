@@ -265,8 +265,8 @@ const (
 	UnRegisterConsGroup   = "urcg"
 	JoinConsGroup         = "jcg"
 	LeaveConsGroup        = "lcg"
-	ConsGroupFocalTopic   = "cgft"
-	ConsGroupUnFocalTopic = "cguft"
+	ConsGroupFocalTopic   = "ft"
+	ConsGroupUnFocalTopic = "uft"
 	DestroyTopic          = "dt"
 	AddPart               = "ap"
 	RemovePart            = "rp"
@@ -447,8 +447,8 @@ func (mdc *MetaDataController) RegisterProducer(request *pb.RegisterProducerRequ
 			}
 			for _, bk := range partition.BrokerGroup.Members {
 				p.Brokers = append(p.Brokers, &pb.BrokerData{
-					Name: bk.Name,
-					Url:  bk.Url,
+					Id:  bk.Name,
+					Url: bk.Url,
 				})
 			}
 			res.TpData.Parts = append(res.TpData.Parts, p)
@@ -861,8 +861,8 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 			}
 			for _, url := range Tpu.Urls {
 				pa.Brokers = append(pa.Brokers, &pb.BrokerData{
-					Name: url.Name,
-					Url:  url.Url,
+					Id:  url.Name,
+					Url: url.Url,
 				})
 			}
 			retData_.FcParts = append(retData_.FcParts, pa)
@@ -1194,8 +1194,8 @@ func (mdc *MetaDataController) CreateTopic(req *pb.CreateTopicRequest) *pb.Creat
 		}
 		for _, member := range partition.BrokerGroup.Members {
 			p.Brokers = append(p.Brokers, &pb.BrokerData{
-				Name: member.Name,
-				Url:  member.Url,
+				Id:  member.Name,
+				Url: member.Url,
 			})
 		}
 		res.Tp.Parts = append(res.Tp.Parts, p)
@@ -1238,8 +1238,8 @@ func (mdc *MetaDataController) QueryTopic(req *pb.QueryTopicRequest) *pb.QueryTo
 		}
 		for _, member := range partition.BrokerGroup.Members {
 			bd := &pb.BrokerData{
-				Name: member.Name,
-				Url:  member.Url,
+				Id:  member.Name,
+				Url: member.Url,
 			}
 			p.Brokers = append(p.Brokers, bd)
 		}
@@ -1619,7 +1619,7 @@ func (mdc *MetaDataController) AddPart(req *pb.AddPartRequest) *pb.AddPartRespon
 	var err error
 	mdc.MD.bkMu.RLock()
 	for _, bk := range req.Part.Brokers {
-		if _, ok := mdc.MD.Brokers[bk.Name]; !ok {
+		if _, ok := mdc.MD.Brokers[bk.Id]; !ok {
 			err = errors.New(Err.ErrSourceNotExist)
 			break
 		}
@@ -1658,7 +1658,7 @@ func (mdc *MetaDataController) AddPart(req *pb.AddPartRequest) *pb.AddPartRespon
 	data.Part = req.Part.Part
 	for _, brokerData := range req.Part.Brokers {
 		data.Brokers = append(data.Brokers, &BrokerData{
-			Name: brokerData.Name,
+			Name: brokerData.Id,
 			Url:  brokerData.Url,
 		})
 	}
@@ -1709,7 +1709,9 @@ func (mdc *MetaDataController) RemovePart(req *pb.RemovePartRequest) *pb.RemoveP
 // Need mdc.mu.Rlock()
 func (mdc *MetaDataController) CreditCheck(Cred *pb.Credentials) bool {
 	ok := false
-
+	if Cred == nil || Cred.Id == "" {
+		return false
+	}
 	switch Cred.Identity {
 	case pb.Credentials_Producer:
 		mdc.MD.pMu.RLock()
@@ -1745,15 +1747,18 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 
 	switch req.Self.Identity {
 	case pb.Credentials_Producer:
-		tm, err := mdc.MD.getTpTerm(req.Topic)
+		if req.TopicData == nil {
+			return &pb.CheckSourceTermResponse{Res: ResponseErrRequestIllegal()}
+		}
+		tm, err := mdc.MD.getTpTerm(req.TopicData.Topic)
 		if err != nil {
 			return &pb.CheckSourceTermResponse{Res: ErrToResponse(err)}
 		}
-		if req.TopicTerm == tm {
+		if req.TopicData.TopicTerm == tm {
 			return &pb.CheckSourceTermResponse{Res: ResponseSuccess()}
 		} else {
 			mdc.MD.tpMu.RLock()
-			tp, err := mdc.MD.QueryTopic(req.Topic)
+			tp, err := mdc.MD.QueryTopic(req.TopicData.Topic)
 			mdc.MD.tpMu.RUnlock()
 			if err != nil {
 				return &pb.CheckSourceTermResponse{Res: ErrToResponse(err)}
@@ -1774,8 +1779,8 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 					}
 					for _, member := range part.BrokerGroup.Members {
 						p.Brokers = append(p.Brokers, &pb.BrokerData{
-							Name: member.Name,
-							Url:  member.Url,
+							Id:  member.Name,
+							Url: member.Url,
 						})
 					}
 					i.TopicData.FcParts = append(i.TopicData.FcParts, p)
@@ -1784,14 +1789,19 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 			}
 		}
 	case pb.Credentials_ConsumerGroup:
-		if req.ConsumerId == nil {
+		if req.ConsumerData == nil {
+			return &pb.CheckSourceTermResponse{
+				Res: ResponseErrRequestIllegal(),
+			}
+		}
+		if req.ConsumerData.ConsumerId == nil {
 			return &pb.CheckSourceTermResponse{Res: ResponseErrRequestIllegal()}
 		}
 		tm, err := mdc.MD.getConsGroupTerm(req.Self.Id)
 		if err != nil {
 			return &pb.CheckSourceTermResponse{Res: ErrToResponse(err)}
 		}
-		if req.GroupTerm == tm {
+		if req.ConsumerData.GroupTerm == tm {
 			return &pb.CheckSourceTermResponse{
 				Res: ResponseSuccess(),
 			}
@@ -1804,7 +1814,7 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 			}
 
 			group.mu.RLock()
-			data, ok1 := group.ConsumersFcPart[*req.ConsumerId]
+			data, ok1 := group.ConsumersFcPart[*req.ConsumerData.ConsumerId]
 			if !ok1 {
 				group.mu.RUnlock()
 				return &pb.CheckSourceTermResponse{Res: ResponseErrSourceNotExist()}
@@ -1824,8 +1834,8 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 				}
 				for _, url := range fcp.Urls {
 					p.Brokers = append(p.Brokers, &pb.BrokerData{
-						Name: url.Name,
-						Url:  url.Url,
+						Id:  url.Name,
+						Url: url.Url,
 					})
 				}
 				i.ConsumersData.FcParts = append(i.ConsumersData.FcParts, p)
@@ -1842,16 +1852,16 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 			ConsumersData: nil,
 			TopicData:     nil,
 		}
-		if req.Topic != "" {
-			tm, err := mdc.MD.getTpTerm(req.Topic)
+		if req.TopicData != nil && req.TopicData.Topic != "" {
+			tm, err := mdc.MD.getTpTerm(req.TopicData.Topic)
 			if err != nil {
 				return &pb.CheckSourceTermResponse{Res: ErrToResponse(err)}
 			}
-			if req.TopicTerm == tm {
+			if req.TopicData.TopicTerm == tm {
 				return &pb.CheckSourceTermResponse{Res: ResponseSuccess()}
 			} else {
 				mdc.MD.tpMu.RLock()
-				tp, err := mdc.MD.QueryTopic(req.Topic)
+				tp, err := mdc.MD.QueryTopic(req.TopicData.Topic)
 				mdc.MD.tpMu.RUnlock()
 				if err != nil {
 					return &pb.CheckSourceTermResponse{Res: ErrToResponse(err)}
@@ -1870,8 +1880,8 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 						}
 						for _, member := range part.BrokerGroup.Members {
 							p.Brokers = append(p.Brokers, &pb.BrokerData{
-								Name: member.Name,
-								Url:  member.Url,
+								Id:  member.Name,
+								Url: member.Url,
 							})
 						}
 						i.TopicData.FcParts = append(i.TopicData.FcParts, p)
@@ -1880,12 +1890,12 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 			}
 
 		}
-		if req.ConsumerId != nil {
+		if req.ConsumerData != nil && req.ConsumerData.ConsumerId != nil {
 			tm, err := mdc.MD.getConsGroupTerm(req.Self.Id)
 			if err != nil {
 				return &pb.CheckSourceTermResponse{Res: ErrToResponse(err)}
 			}
-			if req.GroupTerm == tm {
+			if req.ConsumerData.GroupTerm == tm {
 				return i
 			} else {
 				mdc.MD.cgMu.RLock()
@@ -1896,7 +1906,7 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 				}
 
 				group.mu.RLock()
-				data, ok1 := group.ConsumersFcPart[*req.ConsumerId]
+				data, ok1 := group.ConsumersFcPart[*req.ConsumerData.ConsumerId]
 				if !ok1 {
 					group.mu.RUnlock()
 					return &pb.CheckSourceTermResponse{Res: ResponseErrSourceNotExist()}
@@ -1916,8 +1926,8 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 					}
 					for _, url := range fcp.Urls {
 						p.Brokers = append(p.Brokers, &pb.BrokerData{
-							Name: url.Name,
-							Url:  url.Url,
+							Id:  url.Name,
+							Url: url.Url,
 						})
 					}
 					i.ConsumersData.FcParts = append(i.ConsumersData.FcParts, p)
@@ -1974,10 +1984,37 @@ func (mdc *MetaDataController) CheckBrokersAlive() {
 // todo : Func ProducerDisConnect  From Broker To Check , Is Because of Rebalanced or not , yes to call Unregister , no do nothing
 
 func (mdc *MetaDataController) ConsumerDisConnect(info *pb.DisConnectInfo) *pb.Response {
+	if !mdc.IsLeader() {
+		return ResponseErrNotLeader()
+	}
 
+	mdc.mu.RLock()
+	defer mdc.mu.RUnlock()
+
+	if !(mdc.CreditCheck(info.BrokerInfo) && mdc.CreditCheck(info.TargetInfo)) {
+		return ResponseErrSourceNotExist()
+	}
+
+	data := mdc.CheckSourceTerm(&pb.CheckSourceTermRequest{
+		Self: info.BrokerInfo,
+		ConsumerData: &pb.CheckSourceTermRequest_ConsumerCheck{
+			ConsumerId: &info.TargetInfo.Id,
+			GroupTerm:  -1, // to get Newest parts data
+		},
+	})
+
+	for _, part := range data.ConsumersData.FcParts {
+		for _, brokerData := range part.Brokers {
+			if brokerData.Id == info.BrokerInfo.Id {
+				go mdc.UnRegisterConsumer(&pb.UnRegisterConsumerRequest{Credential: info.TargetInfo})
+				return ResponseSuccess()
+			}
+		}
+	}
+
+	return ResponseSuccess()
 }
 
-// Producer 的记录直接就不存了？
 func (mdc *MetaDataController) ProducerDisConnect(info *pb.DisConnectInfo) *pb.Response {
 	if !mdc.IsLeader() {
 		return ResponseErrNotLeader()
@@ -1986,7 +2023,7 @@ func (mdc *MetaDataController) ProducerDisConnect(info *pb.DisConnectInfo) *pb.R
 	mdc.mu.RLock()
 	defer mdc.mu.RUnlock()
 
-	if mdc.CreditCheck(info.BrokerInfo) && mdc.CreditCheck(info.TargetInfo) {
+	if !(mdc.CreditCheck(info.BrokerInfo) && mdc.CreditCheck(info.TargetInfo)) {
 		return ResponseErrSourceNotExist()
 	}
 
