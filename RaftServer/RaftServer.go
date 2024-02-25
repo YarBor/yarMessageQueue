@@ -1,6 +1,7 @@
 package RaftServer
 
 import (
+	"MqServer/Err"
 	mqLog "MqServer/Log"
 	"MqServer/RaftServer/Pack"
 	"MqServer/RaftServer/Persister"
@@ -21,8 +22,9 @@ const (
 )
 
 var (
-	raftListenAddr       = ""
-	isRaftAddrSet  int32 = 0
+	RaftServerID        = ""
+	RaftServerUrl       = ""
+	isRaftAddrSet int32 = 0
 )
 
 type RaftServer struct {
@@ -36,6 +38,9 @@ type RaftServer struct {
 }
 
 func (rs *RaftServer) Serve() error {
+	if atomic.LoadInt32(&isRaftAddrSet) == 0 {
+		return errors.New(Err.ErrSourceNotExist)
+	}
 	return rs.server.Serve(rs.listener)
 }
 func (rs *RaftServer) HeartBeat(_ context.Context, arg *pb.HeartBeatRequest) (rpl *pb.HeartBeatResponse, err error) {
@@ -158,6 +163,9 @@ func (rs *RaftServer) RequestVote(_ context.Context, arg *pb.RequestVoteRequest)
 
 // url包含自己
 func (rs *RaftServer) RegisterRfNode(T, P string, NodesUrl []string, ch CommandHandler, sh SnapshotHandler) (*RaftNode, error) {
+	if atomic.LoadInt32(&isRaftAddrSet) == 0 {
+		return nil, errors.New(Err.ErrSourceNotExist)
+	}
 	if T == "" || P == "" {
 		return nil, errors.New(UnKnownTopicPartition)
 	}
@@ -174,7 +182,7 @@ func (rs *RaftServer) RegisterRfNode(T, P string, NodesUrl []string, ch CommandH
 		SnapshotHandler: sh,
 	}
 	for i, n := range NodesUrl {
-		if n == raftListenAddr {
+		if n == RaftServerUrl {
 			rn.me = i
 		} else {
 			peer, _ := rn.LinkPeerRpcServer(n)
@@ -195,19 +203,20 @@ func (rs *RaftServer) RegisterRfNode(T, P string, NodesUrl []string, ch CommandH
 	return &rn, nil
 }
 
-func SetRaftListenAddr(addr string) bool {
+func SetRaftServerInfo(ID, Url string) bool {
 	if ok := atomic.CompareAndSwapInt32(&isRaftAddrSet, 0, 1); ok {
-		raftListenAddr = addr
+		RaftServerID = ID
+		RaftServerUrl = Url
 		return true
 	}
 	return false
 }
 
 func MakeRaftServer() (*RaftServer, error) {
-	if raftListenAddr == "" {
+	if RaftServerUrl == "" {
 		panic("RaftListenAddr must be set")
 	}
-	lis, err := net.Listen("tcp", raftListenAddr)
+	lis, err := net.Listen("tcp", RaftServerUrl)
 	if err != nil {
 		mqLog.FATAL(err)
 	}
@@ -217,7 +226,7 @@ func MakeRaftServer() (*RaftServer, error) {
 		mu:                          sync.RWMutex{},
 		server:                      s,
 		listener:                    lis,
-		Addr:                        raftListenAddr,
+		Addr:                        RaftServerUrl,
 		rfs:                         make(map[string]map[string]*RaftNode),
 	}
 	pb.RegisterRaftCallServer(s, res)
@@ -225,6 +234,9 @@ func MakeRaftServer() (*RaftServer, error) {
 }
 
 func (rs *RaftServer) RegisterMetadataRaft(urls []string, ch chan ApplyMsg) (*RaftNode, error) {
+	if atomic.LoadInt32(&isRaftAddrSet) == 0 {
+		return nil, errors.New(Err.ErrSourceNotExist)
+	}
 	T, P := "", ""
 	rn := RaftNode{
 		T:     T,
@@ -233,7 +245,7 @@ func (rs *RaftServer) RegisterMetadataRaft(urls []string, ch chan ApplyMsg) (*Ra
 	}
 	selfIndex := -1
 	for i, n := range urls {
-		if n == raftListenAddr {
+		if n == RaftServerUrl {
 			selfIndex = i
 			continue
 		} else {
