@@ -1,22 +1,5 @@
 package RaftServer
 
-//
-// this is an outline of the API that raft must expose to
-// the service (or tester). see comments below for
-// each of these functions for more details.
-//
-// rf = Make(...)
-//   create a new RaftServer server.
-// rf.Start(command interface{}) (index, term, isleader)
-//   start agreement on a new log entry
-// rf.GetState() (term, isLeader)
-//   ask a RaftServer for its current term, and whether it thinks it is leader
-// ApplyMsg
-//   each time a new entry is committed to the log, each RaftServer peer
-//   should send an ApplyMsg to the service (or tester)
-//   in the same server.
-//
-
 import (
 	"MqServer/RaftServer/Persister"
 	//	"bytes"
@@ -75,24 +58,11 @@ var (
 	LogCheckAppend       = 1
 	LogCheckStore        = 2
 	LogCheckIgnore       = 3
-	//LogCheckReLoad       = 4
-	LogCheckSnap = 5
+	LogCheckSnap         = 5
 
 	UpdateLogLines = 200
-
-	//LogStateNormal = int32(0)
-	//LogUpdateIng   = int32(1)
 )
 
-// as each Raft peer becomes aware that successive log entries are
-// committed, the peer should send an ApplyMsg to the service (or
-// tester) on the same server, via the applyCh passed to Make(). set
-// CommandValid to true to indicate that the ApplyMsg contains a newly
-// committed log entry.
-//
-// in part 2D you'll want to send other kinds of messages (e.g.,
-// snapshots) on the applyCh, but set CommandValid to false for these
-// other uses.
 func (rf *Raft) Dolog(index int, i ...interface{}) {
 	if index == -1 {
 		MyLogger.TRACE(append([]interface{}{interface{}(fmt.Sprintf("%-35s", fmt.Sprintf("{Level:%d}[T:%d]Server[%d]-[nil]", atomic.LoadInt32(&rf.level), atomic.LoadInt32(&rf.term), rf.me)))}, i...)...)
@@ -102,17 +72,13 @@ func (rf *Raft) Dolog(index int, i ...interface{}) {
 }
 
 type RequestArgs struct {
-	// Your data here (2A, 2B).
 	SelfTerm     int32
 	LastLogIndex int32
 	LastLogTerm  int32
 	Time         time.Time
 	SelfIndex    int32
 	CommitIndex  int32
-	// If there is this field,
-	// it means that this request will use to
-	// synchronize logs.
-	Msg []*LogData
+	Msg          []*LogData
 }
 type RequestReply struct {
 	// Your data here (2A).
@@ -122,27 +88,21 @@ type RequestReply struct {
 	ReturnTime       time.Time
 	IsAgree          bool
 	PeerCommitIndex  int32
-	// If there is this field,
-	// it means that this reply will use to
-	// request more LogData.
-	LogDataMsg *LogData
+	LogDataMsg       *LogData
 }
 
-// save in Sequence table
 type ApplyMsg struct {
 	CommandValid bool
 	Command      interface{}
 	CommandIndex int
 	CommandTerm  int
 
-	// For 2D:
 	SnapshotValid bool
 	SnapshotTerm  int
 	SnapshotIndex int
 	Snapshot      []byte
 }
 
-// a pieces of Server Talk
 type LogData struct {
 	Msg           *ApplyMsg
 	LastTimeIndex int
@@ -158,13 +118,11 @@ func (a *LogData) string() string {
 	return fmt.Sprintf(" %+v[this.Msg:%s] ", *a, a.Msg.string())
 }
 
-// a piece of Raft
 type Log struct {
 	Msgs    []*ApplyMsg
 	MsgRwMu sync.RWMutex
 }
 
-// A Go object implementing a single Raft peer.
 type RaftPeer struct {
 	C                *ClientEnd
 	modeLock         sync.Mutex
@@ -183,7 +141,7 @@ func (R *RaftPeer) updateLastTalkTime() {
 	atomic.StoreInt64(&R.lastTalkTime, time.Now().UnixMicro())
 }
 func (R *RaftPeer) isTimeOut() bool {
-	return time.Now().UnixMicro()-atomic.LoadInt64(&R.lastTalkTime) > (HeartbeatTimeout * 3 / 2).Microseconds()
+	return (time.Now().UnixMicro() - atomic.LoadInt64(&R.lastTalkTime)) > (HeartbeatTimeout * 3 / 2).Microseconds()
 }
 func (rf *Raft) checkOutLeaderOnline() bool {
 	if rf.level != LevelLeader {
@@ -202,7 +160,6 @@ func (rf *Raft) checkOutLeaderOnline() bool {
 	return false
 }
 
-// tmp stuct to update Log data
 type MsgStore struct {
 	msgs  []*LogData
 	owner int
@@ -221,29 +178,25 @@ func (s *MsgStore) string() string {
 }
 
 type Raft struct {
-	mu        sync.Mutex           // Lock to protect shared access to this peer's state
-	peers     []*ClientEnd         // RPC end points of all peers
-	persister *Persister.Persister // Object to hold this peer's persisted state
-	me        int                  // this peer's index into peers[]
-	dead      int32                // set by Kill()
+	mu        sync.Mutex
+	peers     []*ClientEnd
+	persister *Persister.Persister
+	me        int
+	dead      int32
 
-	isLeaderAlive int32 //
-	level         int32 //
-	// logIndex      int32 //
-	// logIndexLock  sync.Locker
+	isLeaderAlive int32
+	level         int32
 
-	commitIndex      int32      //
-	commitIndexMutex sync.Mutex //
+	commitIndex      int32
+	commitIndexMutex sync.Mutex
 
-	term            int32 //
+	term            int32
 	termLock        sync.Mutex
 	timeOutChan     chan struct{}
 	levelChangeChan chan struct{}
 	raftPeers       []RaftPeer
-	// Your data here (2A, 2B, 2C).
-	commandLog Log
-	// Look at the paper's Figure 2 for a description of what
-	// state a Raft server must maintain.
+	commandLog      Log
+
 	commitChan          chan int32
 	pMsgStore           *MsgStore // nil
 	pMsgStoreCreateLock sync.Mutex
@@ -252,18 +205,16 @@ type Raft struct {
 
 	applyChan chan ApplyMsg
 
-	logSize int64 //
+	logSize int64
 	wg      sync.WaitGroup
 }
 
-//	func (rf *Raft) Serve() {
-//		close(rf.startChan)
-//	}
 func (rf *Raft) getCommitIndex() int32 {
 	rf.commitIndexMutex.Lock()
 	defer rf.commitIndexMutex.Unlock()
 	return rf.getCommitIndexUnsafe()
 }
+
 func (rf *Raft) getCommitIndexUnsafe() int32 {
 	return atomic.LoadInt32(&rf.commitIndex)
 }
@@ -286,7 +237,6 @@ func (rf *Raft) setCommitIndex(i int32) {
 
 func (rf *Raft) setCommitIndexUnsafe(i int32) {
 	rf.commitIndex = i
-	// r.registPersist()
 }
 func (rf *Raft) GetSnapshot() *ApplyMsg {
 	rf.commandLog.MsgRwMu.RLock()
@@ -299,12 +249,6 @@ func (rf *Raft) getSnapshotUnsafe() *ApplyMsg {
 	rf.Dolog(-1, fmt.Sprintf("Get SnapShot index[%d] , term[%d]", rf.commandLog.Msgs[0].SnapshotIndex, rf.commandLog.Msgs[0].SnapshotTerm))
 	return rf.commandLog.Msgs[0]
 }
-
-// func (r *RaftServer) tryUpdateCommitIndexUnsafe(i int32) {
-// r.commitIndex = i
-// r.Dolog(-1, "tryUpdateCommitIndex", i, "submit in commitChan")
-// r.commitChan <- i
-// }
 
 func (rf *Raft) getLogIndex() int32 {
 	rf.commandLog.MsgRwMu.RLock()
@@ -331,7 +275,6 @@ func (rf *Raft) setTerm(i int32) {
 }
 func (rf *Raft) setTermUnsafe(i int32) {
 	rf.term = i
-	// r.registPersist()
 }
 func (rf *Raft) beginSendHeartBeat() {
 	for i := range rf.raftPeers {
@@ -394,11 +337,6 @@ func (rf *Raft) goSendHeartBeat(index int) bool {
 		return false
 	}
 	if ok && !rpl.IsAgree && (rpl.PeerSelfTerm > rf.getTerm() || rpl.PeerLastLogIndex > rf.getLogIndex() || rpl.PeerLastLogTerm > arg.LastLogTerm) {
-		//
-		//r.commandLog.MsgRwMu.RLock()
-		//r.DebugLoger.Println("\nHeartBeat Error:\n " + showMsgS(r.commandLog.Msgs))
-		//r.commandLog.MsgRwMu.RUnlock()
-
 		rf.Dolog(index, "r.HeartBeatErrr", rf.getLogIndex(), "heartbeat return false Going to be Follower", arg.string(), rpl.string())
 		rf.changeToFollower(&rpl)
 	} else {
@@ -603,13 +541,6 @@ func (rf *Raft) persistUnsafe(snapshot *ApplyMsg) {
 		rf.persister.Save(encodedData, nil) // 保存数据到持久化存储
 	}
 
-	// 记录输出
-	//output := fmt.Sprintf("Encoded CommitIndex: %v, Term: %v, \n(Len:%d)Msgs: %#v",
-	//	rf.getSnapshotUnsafe().SnapshotIndex,
-	//	atomic.LoadInt32(&rf.term), len(rf.commandLog.Msgs),
-	//	*rf.commandLog.Msgs[0])
-
-	//rf.DebugLoger.Println("\nPersist Save - " + output)
 	atomic.StoreInt64(&rf.logSize, int64(rf.persister.RaftStateSize()))
 }
 
@@ -626,7 +557,6 @@ func (rf *Raft) RaftSize() int64 {
 	return atomic.LoadInt64(&rf.logSize)
 }
 
-// restore previously persisted state.
 func (rf *Raft) readPersist(data []byte) {
 	defer rf.checkFuncDone("readPersist")()
 	if data == nil || len(data) < 1 { // bootstrap without any state?
@@ -686,10 +616,6 @@ func (rf *Raft) GetTargetCacheIndex(index int) int {
 	return IndexReturn
 }
 
-// the service says it has created a snapshot that has
-// all info up to and including index. this means the
-// service no longer needs the log through (and including)
-// that index. Raft should now trim its log as much as possible.
 func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// Your code here (2D).
 	defer rf.checkFuncDone("Snapshot")()
@@ -738,13 +664,8 @@ func (rf *Raft) SnapshotUnsafe(index int, InputSnapShotTerm int, snapshot []byte
 			rf.commandLog.Msgs = append(rf.commandLog.Msgs, newMagsHead)
 		}
 	}
-	// why here need send msg , i forget
-	// go func() {
-	// rf.applyChan <- *rf.commandLog.Msgs[0]
-	// }()
 	rf.persistUnsafe(rf.getSnapshotUnsafe())
 	rf.Dolog(-1, fmt.Sprintf("Saved snapshot Index:%v  data :%v", index, snapshot))
-	// os.Stdout.WriteString(fmt.Sprintf("\t F[%d] CallSnapShot:%#v\n", rf.me, *rf.getSnapshotUnsafe()))
 }
 
 func (r *RequestArgs) string() string {
@@ -777,7 +698,6 @@ func (rf *Raft) RequestPreVote(args *RequestArgs, reply *RequestReply) {
 	reply.ReturnTime = time.Now()
 	selfCommitINdex := rf.getCommitIndex()
 	reply.PeerCommitIndex = selfCommitINdex
-	// reply.IsAgree = atomic.LoadInt32(&r.isLeaderAlive) == 0 && ((reply.PeerLastLogTerm < args.LastLogTerm) || (reply.PeerLastLogIndex <= args.LastLogIndex && reply.PeerLastLogTerm == args.LastLogTerm))
 	reply.IsAgree = args.CommitIndex >= selfCommitINdex && (atomic.LoadInt32(&rf.isLeaderAlive) == 0 && args.LastLogTerm >= reply.PeerLastLogTerm && (args.LastLogTerm > reply.PeerLastLogTerm || args.LastLogIndex >= reply.PeerLastLogIndex) && reply.PeerSelfTerm < args.SelfTerm)
 }
 
@@ -830,52 +750,6 @@ func (rf *Raft) RequestVote(args *RequestArgs, reply *RequestReply) {
 	reply.PeerCommitIndex = selfCommitINdex
 	rf.Dolog(int(args.SelfIndex), "answer RequestVote", args.string(), reply.string())
 }
-
-// example code to send a RequestVote RPC to a server.
-// server is the index of the target server in rf.peers[].
-// expects RPC arguments in args.
-// fills in *reply with RPC reply, so caller should
-// pass &reply.
-// the types of the args and reply passed to Call() must be
-// the same as the types of the arguments declared in the
-// handler function (including whether they are pointers).
-//
-// The labrpc package simulates a lossy network, in which servers
-// may be unreachable, and in which requests and replies may be lost.
-// Call() sends a request and waits for a reply. If a reply arrives
-// within a timeout interval, Call() returns true; otherwise
-// Call() returns false. Thus Call() may not return for a while.
-// A false return can be caused by a dead server, a live server that
-// can't be reached, a lost request, or a lost reply.
-//
-// Call() is guaranteed to return (perhaps after a delay) *except* if the
-// handler function on the server side does not return.  Thus there
-// is no need to implement your own timeouts around Call().
-//
-// look at the comments in ../labrpc/labrpc.go for more details.
-//
-// if you're having trouble getting RPC to work, check that you've
-// capitalized all field names in structs passed over RPC, and
-// that the caller passes the address of the reply struct with &, not
-// the struct itself.
-
-// func (rf *RaftServer) sendRequestVote(server int, args *RequestArgs, reply *RequestReply) bool {
-// 	ok := rf.peers[server].Call("RaftServer.RequestVote", args, reply)
-// 	return ok
-// }
-
-// the service using RaftServer (e.g. a k/v server) wants to start
-// agreement on the next command to be appended to RaftServer's log. if this
-// server isn't the leader, returns false. otherwise start the
-// agreement and return immediately. there is no guarantee that this
-// command will ever be committed to the RaftServer log, since the leader
-// may fail or lose an election. even if the RaftServer instance has been killed,
-// this function should return gracefully.
-//
-// the first return value is the index that the command will appear at
-// if it's ever committed. the second return value is the current
-// term. the third return value is true if this server believes it is
-// the leader.
 
 func (rf *Raft) checkMsg(data *LogData) int {
 	if data == nil {
@@ -1008,11 +882,6 @@ func (m *MsgStore) insert(target *LogData) {
 	}
 	// log.Printf("m: %v\n", m)
 }
-
-// expect a orderly list in this
-// when rf.msgs's tail  ==  this list 's head
-// do update And Del this list 's head step by step
-// to rf.msgs's tail != this list 's head || this list 's len == 0
 
 func (rf *Raft) saveMsg() (*LogData, bool) {
 
@@ -1192,16 +1061,7 @@ func (rf *Raft) updateMsgs(msg []*LogData) *LogData {
 	if IsChangeMsg || IsSave {
 		// rf.registPersist()
 	}
-	// if i != nil {
-	// 	log.Printf("Return rpl To request msg : %+v\n \nMsg Now:>\n", i.string())
-	// 	for i2, am := range rf.commandLog.Msgs {
-	// 		log.Printf("rf.CommandLog.Msgs[%d]: %+v\n", i2, am.string())
-	// 	}
-	// 	for i2, am := range rf.pMsgStore.msgs {
-	// 		log.Printf("rf.pMsgStore.msgs[%d]: %+v\n", i2, am.string())
-	// 	}
 
-	// }
 	return i
 }
 
@@ -1219,8 +1079,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	LevelNow := rf.getLevel()
 	lastLogIndex := rf.getLogIndex()
 
-	// No idea about whether use Ping()
-	// if i, m, checkOutLeaderOnline := int(lastLogIndex), int(TermNow), rf.checkOutLeaderOnline(); LevelNow != LevelLeader || (!checkOutLeaderOnline && !rf.Ping()) {
 	if i, m, checkOutLeaderOnline := int(lastLogIndex), int(TermNow), rf.checkOutLeaderOnline(); LevelNow != LevelLeader || (!checkOutLeaderOnline) {
 		rf.Dolog(-1, "Start return ", "LogIndex", i, "Term", m, "Level", LevelNow)
 		return i, m, false
@@ -1265,18 +1123,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		arg.LastLogIndex, arg.LastLogTerm = int32(rf.commandLog.Msgs[len(rf.commandLog.Msgs)-1].CommandIndex), int32(rf.commandLog.Msgs[len(rf.commandLog.Msgs)-1].CommandTerm)
 	}
 
-	// if len(rf.commandLog.Msgs) > 1 {
-	// 	arg.Msg[0].LastTimeIndex = rf.commandLog.Msgs[len(rf.commandLog.Msgs)-2].CommandIndex
-	// 	arg.Msg[0].LastTimeTerm = rf.commandLog.Msgs[len(rf.commandLog.Msgs)-2].CommandTerm
-	// } else {
-	// 	if rf.commandLog.Msgs[0].SnapshotValid {
-	// 		arg.Msg[0].LastTimeIndex = rf.commandLog.Msgs[0].SnapshotIndex
-	// 		arg.Msg[0].LastTimeTerm = rf.commandLog.Msgs[0].SnapshotTerm
-	// 	} else {
-	// 		arg.Msg[0].LastTimeIndex = 0
-	// 		arg.Msg[0].LastTimeTerm = -1
-	// 	}
-	// }
 	if len(rf.commandLog.Msgs) == 2 && rf.commandLog.Msgs[len(rf.commandLog.Msgs)-2].SnapshotValid {
 		arg.Msg[0].LastTimeIndex = rf.commandLog.Msgs[0].SnapshotIndex
 		arg.Msg[0].LastTimeTerm = rf.commandLog.Msgs[0].SnapshotTerm
@@ -1383,7 +1229,6 @@ func (rf *Raft) leaderUpdatePeer(peerIndex int, msg *LogData) {
 	arg := RequestArgs{
 		SelfTerm:  rf.getTerm(),
 		SelfIndex: int32(rf.me),
-		// Msg:       append(make([]*LogData, 0), &LogData{SelfIndex: r.me}),
 	}
 	for {
 		arg.LastLogIndex, arg.LastLogTerm = rf.getLastLogData()
@@ -1439,15 +1284,6 @@ func (rf *Raft) leaderUpdatePeer(peerIndex int, msg *LogData) {
 	rf.Dolog(peerIndex, "leaderUpdate: Update Done")
 }
 
-// the tester doesn't halt goroutines created by Raft after each test,
-// but it does call the Kill() method. your code can use killed() to
-// check whether Kill() has been called. the use of atomic avoids the
-// need for a lock.
-//
-// the issue is that long-running goroutines use memory and may chew
-// up CPU time, perhaps causing later tests to fail and generating
-// confusing debug output. any goroutine with a long-running loop
-// should call killed() to check whether it should stop.
 func (rf *Raft) Kill() {
 	atomic.StoreInt32(&rf.dead, 1)
 	rf.Dolog(-1, "killdead")
@@ -1647,25 +1483,6 @@ func Make(peers []*ClientEnd, me int, persister *Persister.Persister, applyCh ch
 	rf.KilledChan = make(chan bool, 100)
 	rf.termLock = sync.Mutex{}
 
-	//file, err := os.OpenFile(fmt.Sprintf("/home/wang/raftLog/raft_%d.R", os.Getpid()), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
-	//if err != nil {
-	//	os.Stderr.WriteString(fmt.Sprintf("err.Error(): %v\n", err.Error()))
-	//	os.Exit(1)
-	//}
-	//log.SetOutput(file)
-
-	//file2, err := os.OpenFile(fmt.Sprintf("/home/wang/raftLog/raft_%d_%d.R", os.Getpid(), rf.me), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
-	//if err != nil {
-	//	os.Stderr.WriteString(fmt.Sprintf("err.Error(): %v\n", err.Error()))
-	//	log.Fatal(err)
-	//}
-	//
-	//rf.DebugLoger = log.New(file2, "", log.LstdFlags)
-	//rf.DebugLoger.SetFlags(log.Lmicroseconds)
-	// Your initialization code here (2A, 2B, 2C).
-	// initialize from state persisted before a crash
-	// wait for call rf.Serve()
-	//<-rf.startChan
 	for i := range rf.peers {
 		rf.raftPeers[i] = RaftPeer{C: rf.peers[i], SendHeartBeat: make(chan struct{}), JumpHeartBeat: make(chan struct{}, 1), BeginHeartBeat: make(chan struct{}), StopHeartBeat: make(chan struct{})}
 		rf.raftPeers[i].modeLock = sync.Mutex{}
@@ -1768,14 +1585,6 @@ func (rf *Raft) committer(applyCh chan ApplyMsg) {
 					rf.raftPeers[i].logIndexTermLock.Unlock()
 				}
 				sort.Sort(peersLogSlice(peerLogedIndexs))
-				{
-					//asdf := make([]int, 0)
-					//for i := range peerLogedIndexs {
-					//asdf = append(asdf, int(peerLogedIndexs[i].commitIndex))
-					//}
-					//sort.Ints(asdf)
-					//halfLenPeersCommitted = asdf[len(asdf)/2+1]
-				}
 				ToLogHalfIndex := peerLogedIndexs[(len(peerLogedIndexs))/2+1]
 				_, SelfNowLastLogTerm := rf.getLastLogData()
 				if SelfNowLastLogTerm > ToLogHalfIndex.term {

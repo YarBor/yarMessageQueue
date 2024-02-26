@@ -38,7 +38,7 @@ service MqServerCall {
       returns (UnRegisterProducerResponse) {}
 
   // 客户端和server之间的心跳
-  rpc Heartbeat(Ack) returns (Response) {}
+  rpc Heartbeat(HeartBeatRequest) returns (Response) {}
   rpc ConsumerDisConnect(DisConnectInfo) returns (Response) {}
   rpc ProducerDisConnect(DisConnectInfo) returns (Response) {}
   // 拉取消息
@@ -167,8 +167,8 @@ message Credentials {
   string Key = 3;
 }
 
-message Ack {
-  Credentials ConsCred = 1;
+message HeartBeatRequest {
+  Credentials Self = 1;
   optional Credentials GroupCred = 3;
   // Consumer's receive message offset
   optional int32 offset = 2;
@@ -278,7 +278,7 @@ message PushMessageRequest {
 message PushMessageResponse { Response response = 1; }
 
 message PullMessageRequest {
-  Ack ack = 1;
+  HeartBeatRequest ack = 1;
   int32 WindowSize = 2;
 }
 

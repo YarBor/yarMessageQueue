@@ -106,6 +106,7 @@ func (s *broker) PushMessage(_ context.Context, req *pb.PushMessageRequest) (*pb
 
 func (s *broker) Heartbeat(_ context.Context, req *pb.Ack) (*pb.Response, error) {
 	// TODO:
+
 	return nil, nil
 }
 

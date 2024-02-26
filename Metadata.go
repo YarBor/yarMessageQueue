@@ -1980,6 +1980,23 @@ func (mdc *MetaDataController) CheckBrokersAlive() {
 	}
 }
 
+func (mdc *MetaDataController) SetBrokerAlive(ID string) error {
+	if mdc.IsLeader() {
+		mdc.mu.RLock()
+		mdc.MD.bkMu.RLock()
+		bk, ok := mdc.MD.Brokers[ID]
+		mdc.MD.bkMu.RUnlock()
+		mdc.mu.RUnlock()
+		if !ok {
+			return errors.New(Err.ErrSourceNotExist)
+		} else {
+			atomic.StoreInt64(&bk.TimeoutTime, time.Now().UnixMilli())
+		}
+		return nil
+	}
+	return errors.New(Err.ErrRequestNotLeader)
+}
+
 // todo : Func ConsumerDisConnect   From Broker To Check , Is Because of Rebalanced or not , yes to call Unregister , no do nothing
 // todo : Func ProducerDisConnect  From Broker To Check , Is Because of Rebalanced or not , yes to call Unregister , no do nothing
 
