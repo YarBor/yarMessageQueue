@@ -8,39 +8,74 @@ import (
 	"time"
 )
 
-type GroupManager struct {
-	mu        sync.RWMutex
-	wg        sync.WaitGroup
-	IsStop    bool
-	IdHash    map[string]int // CredId -- Index
-	Consumers []*Consumer
+type GroupsManager struct {
+	wg               sync.WaitGroup
+	mu               sync.RWMutex
+	IsStop           bool
+	ID2ConsumerGroup map[string]*ConsumerGroup // CredId -- Index
 	SessionLogoutNotifier
 }
 
-func NewConsumerHeartBeatManager(s SessionLogoutNotifier) *GroupManager {
-	res := &GroupManager{
+func NewGroupsManager(sessionLogoutNotifier SessionLogoutNotifier) *GroupsManager {
+	return &GroupsManager{
 		IsStop:                false,
-		IdHash:                make(map[string]int),
-		Consumers:             make([]*Consumer, 0),
-		SessionLogoutNotifier: s,
+		ID2ConsumerGroup:      make(map[string]*ConsumerGroup),
+		SessionLogoutNotifier: sessionLogoutNotifier,
 	}
-	res.wg.Add(1)
-	go res.heartbeatCheck()
-	return res
 }
 
-type Consumer struct {
-	SelfId               string
+type ConsumerGroup struct {
+	mu                   sync.RWMutex
 	GroupId              string
+	Consumers            *Consumer
 	MaxReturnMessageSize int32
-	TimeoutSessionMsec   int32
-	mu                   sync.Mutex
-	//TODO:
-	//ConsumeLastTimeGetData
-	ConsumeOffset uint64
-	ConsumeData   [][]byte
-	//NextTimeOutTime
-	Time int64
+	ConsumeOffset        uint64 //ConsumeLastTimeGetDataOffset
+	LastConsumeData      *[][]byte
+}
+
+func NewConsumerGroup(groupId string, maxReturnMessageSize int32) *ConsumerGroup {
+	return &ConsumerGroup{
+		GroupId:              groupId,
+		Consumers:            nil,
+		MaxReturnMessageSize: maxReturnMessageSize,
+		ConsumeOffset:        0,
+		LastConsumeData:      nil,
+	}
+}
+
+const (
+	ConsumerMode_Connect    = 1
+	ConsumerMode_DisConnect = 2
+)
+
+type Consumer struct {
+	Mode               int32
+	SelfId             string
+	GroupId            string
+	Time               int64 //NextTimeOutTime
+	TimeoutSessionMsec int32
+}
+
+func NewConsumer(selfId string, groupId string, timeoutSessionMsec int32) *Consumer {
+	return &Consumer{
+		Mode:               ConsumerMode_Connect,
+		SelfId:             selfId,
+		GroupId:            groupId,
+		Time:               time.Now().UnixMilli() + int64(timeoutSessionMsec*2),
+		TimeoutSessionMsec: timeoutSessionMsec,
+	}
+}
+
+func (c *Consumer) CheckTimeout(now int64) bool {
+	if atomic.LoadInt32(&c.Mode) == ConsumerMode_DisConnect {
+		return true
+	} else {
+		if now > atomic.LoadInt64(&c.Time) {
+			atomic.StoreInt32(&c.Mode, ConsumerMode_DisConnect)
+			return true
+		}
+		return false
+	}
 }
 
 func (c *Consumer) TimeUpdate() {
@@ -52,50 +87,64 @@ type SessionLogoutNotifier interface {
 	//Notify metadata service to log out due to session termination
 }
 
-func (gm *GroupManager) heartbeatCheck() {
+func (gm *GroupsManager) HeartbeatCheck() {
 	defer gm.wg.Done()
 	for {
-		time.Sleep(10 * time.Millisecond)
-		if !gm.mu.TryLock() {
-			continue
-		}
+		time.Sleep(35 * time.Millisecond)
 		if gm.IsStop {
 			return
+		}
+		if !gm.mu.TryRLock() {
+			continue
 		} else {
-			l := make([]*Consumer, 0, len(gm.Consumers))
-			for i := range gm.Consumers {
-				if atomic.LoadInt64(&gm.Consumers[i].Time) > time.Now().UnixMilli() {
-					l = append(l, gm.Consumers[i])
-				} else {
+			now := time.Now().UnixMilli()
+			for _, Group := range gm.ID2ConsumerGroup {
+				Group.mu.TryRLock()
+				Cons := Group.Consumers
+				Group.mu.RUnlock()
+				IsTimeout := Cons.CheckTimeout(now)
+				if IsTimeout {
 					gm.wg.Add(1)
 					go func() {
-						gm.cancelReg2Cluster(gm.Consumers[i])
+						gm.cancelReg2Cluster(Cons)
 						gm.wg.Done()
 					}()
 				}
 			}
-			gm.Consumers = l
 		}
-		gm.mu.Unlock()
+		gm.mu.RUnlock()
 	}
 }
 
-func (gm *GroupManager) RegisterConsumer(consumer *Consumer) error {
+func (gm *GroupsManager) UnregisterConsumerGroup(GroupId string) error {
 	if gm.IsStop {
 		return errors.New(Err.ErrSourceNotExist)
 	}
 	gm.mu.Lock()
 	defer gm.mu.Unlock()
-	if _, ok := gm.IdHash[consumer.SelfId]; !ok {
-		gm.IdHash[consumer.SelfId] = len(gm.Consumers) - 1
-		gm.Consumers = append(gm.Consumers, consumer)
+	if _, ok := gm.ID2ConsumerGroup[GroupId]; ok {
+		return errors.New(Err.ErrSourceNotExist)
+	} else {
+		delete(gm.ID2ConsumerGroup, GroupId)
+		return nil
+	}
+}
+
+func (gm *GroupsManager) RegisterConsumerGroup(consumersGroup *ConsumerGroup) error {
+	if gm.IsStop {
+		return errors.New(Err.ErrSourceNotExist)
+	}
+	gm.mu.Lock()
+	defer gm.mu.Unlock()
+	if _, ok := gm.ID2ConsumerGroup[consumersGroup.GroupId]; !ok {
+		gm.ID2ConsumerGroup[consumersGroup.GroupId] = consumersGroup
 		return nil
 	} else {
 		return errors.New(Err.ErrSourceAlreadyExist)
 	}
 }
 
-func (gm *GroupManager) Stop() {
+func (gm *GroupsManager) Stop() {
 	gm.IsStop = true
 	gm.wg.Wait()
 }

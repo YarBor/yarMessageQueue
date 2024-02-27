@@ -22,7 +22,8 @@ service MqServerCall {
   // 创建话题
   rpc CreateTopic(CreateTopicRequest) returns (CreateTopicResponse) {}
   rpc QueryTopic(QueryTopicRequest) returns (QueryTopicResponse) {}
-  rpc DestroyTopic(DestroyTopicRequest) returns (DestroyTopicResponse) {}
+  //  destroy when all client unfollow the topic
+  //  rpc DestroyTopic(DestroyTopicRequest) returns (DestroyTopicResponse) {}
   // Add / Del Part
   rpc AddPart(AddPartRequest) returns (AddPartResponse) {}
   rpc RemovePart(RemovePartRequest) returns (RemovePartResponse) {}
@@ -38,14 +39,27 @@ service MqServerCall {
       returns (UnRegisterProducerResponse) {}
 
   // 客户端和server之间的心跳
-  rpc Heartbeat(HeartBeatRequest) returns (Response) {}
+  rpc Heartbeat(MQHeartBeatData) returns (Response) {}
   rpc ConsumerDisConnect(DisConnectInfo) returns (Response) {}
   rpc ProducerDisConnect(DisConnectInfo) returns (Response) {}
   // 拉取消息
   rpc PullMessage(PullMessageRequest) returns (PullMessageResponse) {}
   // 推送消息
   rpc PushMessage(PushMessageRequest) returns (PushMessageResponse) {}
+  rpc ConfirmIdentity(ConfirmIdentityRequest) returns (ConfirmIdentityResponse){}
 }
+
+message ConfirmIdentityRequest {
+  Credentials self = 1 ;
+  Credentials CheckIdentity = 2;
+  optional Partition CheckPartition = 3;
+}
+
+message ConfirmIdentityResponse {
+//  bool IsSuccess = 1;
+  Response response = 1;
+}
+
 
 message DisConnectInfo {
   Credentials BrokerInfo = 1;
@@ -57,7 +71,7 @@ message AddPartRequest {
   Partition part = 3;
 }
 
-message AddPartResponse { Response res = 1; }
+message AddPartResponse {Response response = 1;}
 
 message RemovePartRequest {
   Credentials Cred = 1;
@@ -65,24 +79,24 @@ message RemovePartRequest {
   string Part = 3;
 }
 
-message RemovePartResponse { Response res = 1; }
+message RemovePartResponse {Response response = 1;}
 
 message SubscribeTopicRequest {
   Credentials CGCred = 4;
   string Tp = 3;
 }
 
-message SubscribeTopicResponse { Response res = 1; }
+message SubscribeTopicResponse {Response response = 1;}
 
 message UnSubscribeTopicRequest {
   Credentials CGCred = 4;
   string Tp = 3;
 }
 
-message UnSubscribeTopicResponse { Response res = 1; }
+message UnSubscribeTopicResponse {Response response = 1;}
 
 // message GetCorrespondPartitionResponse {
-//   Response res = 4;
+//   Response response = 4;
 //   int32 TopicTerm = 1;
 //   int32 GroupTerm = 2;
 //   repeated Partition FcParts = 3;
@@ -98,10 +112,10 @@ message UnSubscribeTopicResponse { Response res = 1; }
 //
 
 message CheckSourceTermResponse {
-  Response res = 5;
+  Response response = 5;
   int32 TopicTerm = 1;
   int32 GroupTerm = 2;
-  message PartsData { repeated Partition FcParts = 3; }
+  message PartsData {repeated Partition FcParts = 3;}
   optional PartsData ConsumersData = 16;
   optional PartsData TopicData = 6;
 }
@@ -125,7 +139,7 @@ message LeaveConsumerGroupRequest {
   Credentials ConsumerCred = 2;
 }
 
-message LeaveConsumerGroupResponse { Response res = 1; }
+message LeaveConsumerGroupResponse {Response response = 1;}
 
 message JoinConsumerGroupRequest {
   Credentials Cred = 1;
@@ -133,7 +147,7 @@ message JoinConsumerGroupRequest {
 }
 
 message JoinConsumerGroupResponse {
-  Response res = 1;
+  Response response = 1;
   repeated Partition FcParts = 3;
   int32 GroupTerm = 4;
 }
@@ -149,7 +163,7 @@ message RegisterConsumerGroupRequest {
 }
 
 message RegisterConsumerGroupResponse {
-  Response res = 2;
+  Response response = 2;
   int32 GroupTerm = 4;
   Credentials Cred = 1;
 }
@@ -167,7 +181,7 @@ message Credentials {
   string Key = 3;
 }
 
-message HeartBeatRequest {
+message MQHeartBeatData {
   Credentials Self = 1;
   optional Credentials GroupCred = 3;
   // Consumer's receive message offset
@@ -256,29 +270,29 @@ message QueryTopicResponse {
   int32 TopicTerm = 3;
 }
 
-message DestroyTopicRequest { string Topic = 1; }
+//message DestroyTopicRequest {string Topic = 1;}
+//
+//message DestroyTopicResponse {Response response = 1;}
 
-message DestroyTopicResponse { Response response = 1; }
+message UnRegisterConsumerRequest {Credentials credential = 1;}
 
-message UnRegisterConsumerRequest { Credentials credential = 1; }
+message UnRegisterConsumerResponse {Response response = 1;}
 
-message UnRegisterConsumerResponse { Response response = 1; }
+message UnRegisterProducerRequest {Credentials credential = 1;}
 
-message UnRegisterProducerRequest { Credentials credential = 1; }
+message UnRegisterProducerResponse {Response response = 1;}
 
-message UnRegisterProducerResponse { Response response = 1; }
-
-message Message { bytes Message = 1; }
+message Message {bytes Message = 1;}
 
 message PushMessageRequest {
   Credentials credential = 1;
   repeated Message Msgs = 2;
 }
 
-message PushMessageResponse { Response response = 1; }
+message PushMessageResponse {Response response = 1;}
 
 message PullMessageRequest {
-  HeartBeatRequest ack = 1;
+  MQHeartBeatData ack = 1;
   int32 WindowSize = 2;
 }
 
