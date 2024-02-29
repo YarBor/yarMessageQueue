@@ -67,14 +67,35 @@ const (
 type BrokerMD struct {
 	BrokerData
 	// All Atomic operations
-	TimeoutTime  int64
-	Mode         int32
-	PartitionNum uint32
+	HeartBeatSession int64
+	TimeoutTime      int64
+	IsMetadataNode   bool
+	IsDisconnect     int32
+	PartitionNum     uint32
+}
+
+func (md *BrokerMD) ResetTimeoutTime() {
+	atomic.StoreInt64(&md.TimeoutTime, md.HeartBeatSession+time.Now().UnixMilli())
+	atomic.StoreInt32(&md.IsDisconnect, BrokerMode_BrokerConnected)
+}
+
+func NewBrokerMD(IsMetadataNode bool, ID, url string, HeartBeatSession int64) *BrokerMD {
+	return &BrokerMD{
+		BrokerData: BrokerData{
+			ID:  ID,
+			Url: url,
+		},
+		HeartBeatSession: HeartBeatSession,
+		TimeoutTime:      time.Now().UnixMilli(),
+		IsMetadataNode:   IsMetadataNode,
+		IsDisconnect:     BrokerMode_BrokerDisconnected,
+		PartitionNum:     0,
+	}
 }
 
 type BrokerData struct {
-	Name string
-	Url  string
+	ID  string
+	Url string
 }
 
 type BrokersGroupMD struct {
@@ -103,6 +124,79 @@ type MetaDataController struct {
 	MetaDataRaft *RaftServer.RaftNode
 	mu           sync.RWMutex
 	MD           *MetaData
+}
+
+func (mdc *MetaDataController) ConfirmIdentity(target *pb.Credentials) error {
+	if !mdc.IsLeader() {
+		return errors.New(Err.ErrRequestNotLeader)
+	}
+	mdc.mu.RLock()
+	defer mdc.mu.RUnlock()
+	if !mdc.CreditCheck(target) {
+		return errors.New(Err.ErrRequestIllegal)
+	} else {
+		return nil
+	}
+
+}
+func (mdc *MetaDataController) GetTopicTermDiff(Src map[string]int32) (map[string]int32, error) {
+	if !mdc.IsLeader() {
+		return nil, errors.New(Err.ErrRequestNotLeader)
+	}
+	mdc.mu.RLock()
+	defer mdc.mu.RUnlock()
+	returnData := map[string]int32{}
+	for tp, term := range Src {
+		mdc.MD.ttMu.RLock()
+		i, ok := mdc.MD.TpTerm[tp]
+		mdc.MD.ttMu.RUnlock()
+		if ok {
+			NewTerm := atomic.LoadInt32(i)
+			if NewTerm != term {
+				returnData[tp] = NewTerm
+			}
+		} else {
+			returnData[tp] = -1
+		}
+	}
+	return returnData, nil
+}
+
+func (mdc *MetaDataController) GetConsumerGroupTermDiff(Src map[string]int32) (map[string]int32, error) {
+	if !mdc.IsLeader() {
+		return nil, errors.New(Err.ErrRequestNotLeader)
+	}
+	mdc.mu.RLock()
+	defer mdc.mu.RUnlock()
+	returnData := map[string]int32{}
+	for tp, term := range Src {
+		mdc.MD.cgtMu.RLock()
+		i, ok := mdc.MD.ConsGroupTerm[tp]
+		mdc.MD.cgtMu.RUnlock()
+		if ok {
+			NewTerm := atomic.LoadInt32(i)
+			if NewTerm != term {
+				returnData[tp] = NewTerm
+			}
+		} else {
+			returnData[tp] = -1
+		}
+	}
+	return returnData, nil
+}
+
+func (mdc *MetaDataController) KeepBrokersAlive(id string) error {
+	mdc.mu.RLock()
+	defer mdc.mu.RUnlock()
+	mdc.MD.bkMu.RLock()
+	bk, ok := mdc.MD.Brokers[id]
+	mdc.MD.bkMu.RUnlock()
+	if !ok {
+		return errors.New(Err.ErrSourceNotExist)
+	} else {
+		bk.ResetTimeoutTime()
+		return nil
+	}
 }
 
 func (md *MetaData) getConsGroupTerm(ConsGroupID string) (int32, error) {
@@ -381,8 +475,8 @@ func (md *MetaData) GetFreeBrokers(brokersNum int32) ([]*BrokerData, error) {
 		bks = append(bks, bk)
 	}
 	sort.Slice(bks, func(i, j int) bool {
-		modeI := atomic.LoadInt32(&bks[i].Mode)
-		modeJ := atomic.LoadInt32(&bks[j].Mode)
+		modeI := atomic.LoadInt32(&bks[i].IsDisconnect)
+		modeJ := atomic.LoadInt32(&bks[j].IsDisconnect)
 		if modeI == modeJ {
 			return atomic.LoadUint32(&bks[i].PartitionNum) < atomic.LoadUint32(&bks[j].PartitionNum)
 		}
@@ -447,7 +541,7 @@ func (mdc *MetaDataController) RegisterProducer(request *pb.RegisterProducerRequ
 			}
 			for _, bk := range partition.BrokerGroup.Members {
 				p.Brokers = append(p.Brokers, &pb.BrokerData{
-					Id:  bk.Name,
+					Id:  bk.ID,
 					Url: bk.Url,
 				})
 			}
@@ -861,7 +955,7 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 			}
 			for _, url := range Tpu.Urls {
 				pa.Brokers = append(pa.Brokers, &pb.BrokerData{
-					Id:  url.Name,
+					Id:  url.ID,
 					Url: url.Url,
 				})
 			}
@@ -988,7 +1082,7 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 		mdc.MD.tpMu.RLock()
 		mdc.MD.bkMu.RLock()
 		for _, bk := range data.Brokers {
-			if _, ok := mdc.MD.Brokers[bk.Name]; !ok {
+			if _, ok := mdc.MD.Brokers[bk.ID]; !ok {
 				err = errors.New(Err.ErrSourceNotExist)
 				break
 			}
@@ -1194,7 +1288,7 @@ func (mdc *MetaDataController) CreateTopic(req *pb.CreateTopicRequest) *pb.Creat
 		}
 		for _, member := range partition.BrokerGroup.Members {
 			p.Brokers = append(p.Brokers, &pb.BrokerData{
-				Id:  member.Name,
+				Id:  member.ID,
 				Url: member.Url,
 			})
 		}
@@ -1238,7 +1332,7 @@ func (mdc *MetaDataController) QueryTopic(req *pb.QueryTopicRequest) *pb.QueryTo
 		}
 		for _, member := range partition.BrokerGroup.Members {
 			bd := &pb.BrokerData{
-				Id:  member.Name,
+				Id:  member.ID,
 				Url: member.Url,
 			}
 			p.Brokers = append(p.Brokers, bd)
@@ -1658,8 +1752,8 @@ func (mdc *MetaDataController) AddPart(req *pb.AddPartRequest) *pb.AddPartRespon
 	data.Part = req.Part.Part
 	for _, brokerData := range req.Part.Brokers {
 		data.Brokers = append(data.Brokers, &BrokerData{
-			Name: brokerData.Id,
-			Url:  brokerData.Url,
+			ID:  brokerData.Id,
+			Url: brokerData.Url,
 		})
 	}
 	err, _ = mdc.commit(AddPart, data)
@@ -1779,7 +1873,7 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 					}
 					for _, member := range part.BrokerGroup.Members {
 						p.Brokers = append(p.Brokers, &pb.BrokerData{
-							Id:  member.Name,
+							Id:  member.ID,
 							Url: member.Url,
 						})
 					}
@@ -1834,7 +1928,7 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 				}
 				for _, url := range fcp.Urls {
 					p.Brokers = append(p.Brokers, &pb.BrokerData{
-						Id:  url.Name,
+						Id:  url.ID,
 						Url: url.Url,
 					})
 				}
@@ -1880,7 +1974,7 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 						}
 						for _, member := range part.BrokerGroup.Members {
 							p.Brokers = append(p.Brokers, &pb.BrokerData{
-								Id:  member.Name,
+								Id:  member.ID,
 								Url: member.Url,
 							})
 						}
@@ -1926,7 +2020,7 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 					}
 					for _, url := range fcp.Urls {
 						p.Brokers = append(p.Brokers, &pb.BrokerData{
-							Id:  url.Name,
+							Id:  url.ID,
 							Url: url.Url,
 						})
 					}
@@ -1946,7 +2040,7 @@ func (md *MetaData) BrokersSourceCheck() error {
 	defer md.bkMu.RUnlock()
 	count := 0
 	for _, brokerMD := range md.Brokers {
-		if brokerMD.Mode == BrokerMode_BrokerDisconnected {
+		if brokerMD.IsDisconnect == BrokerMode_BrokerDisconnected {
 			count++
 		}
 	}
@@ -1964,10 +2058,10 @@ func (mdc *MetaDataController) CheckBrokersAlive() {
 				for _, brokerMD := range mdc.MD.Brokers {
 					if atomic.LoadInt64(&brokerMD.TimeoutTime) < now {
 						// >> Mey here Race condition
-						atomic.StoreInt32(&brokerMD.Mode, BrokerMode_BrokerDisconnected)
+						atomic.StoreInt32(&brokerMD.IsDisconnect, BrokerMode_BrokerDisconnected)
 						// For Race
 						if atomic.LoadInt64(&brokerMD.TimeoutTime) > now {
-							atomic.StoreInt32(&brokerMD.Mode, BrokerMode_BrokerConnected)
+							atomic.StoreInt32(&brokerMD.IsDisconnect, BrokerMode_BrokerConnected)
 						}
 					}
 

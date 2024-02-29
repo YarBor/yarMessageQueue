@@ -48,9 +48,13 @@ var (
 )
 
 type PartitionsController struct {
-	mu            sync.RWMutex
-	P             map[string]*Partition // key: "Topic/Partition"
-	handleTimeout ConsumerGroup.SessionLogoutNotifier
+	tMu               sync.RWMutex
+	TopicTerm         map[string]*int32
+	cgMu              sync.RWMutex
+	ConsumerGroupTerm map[string]*int32
+	partsMu           sync.RWMutex
+	P                 map[string]*Partition // key: "Topic/Partition"
+	handleTimeout     ConsumerGroup.SessionLogoutNotifier
 }
 
 // 客户端和server之间的心跳
@@ -291,6 +295,9 @@ func (s *broker) ConfirmIdentity(_ context.Context, req *pb.ConfirmIdentityReque
 		return &pb.ConfirmIdentityResponse{
 			Response: ResponseErrNotLeader(),
 		}, nil
+	} else {
+		err := s.MetaDataController.ConfirmIdentity(req.CheckIdentity)
+		return &pb.ConfirmIdentityResponse{Response: ErrToResponse(err)}, nil
 	}
 
 }
@@ -309,20 +316,42 @@ func (s *broker) PushMessage(_ context.Context, req *pb.PushMessageRequest) (*pb
 	return nil, nil
 }
 
-func (s *broker) Heartbeat(_ context.Context, req *pb.MQHeartBeatData) (*pb.Response, error) {
+func (s *broker) Heartbeat(_ context.Context, req *pb.MQHeartBeatData) (*pb.HeartBeatResponseData, error) {
 	// TODO:
-	switch req.Self.Identity {
-	case pb.Credentials_Consumer:
-		if req.GroupCred == nil || req.Offset == nil {
-			return ResponseErrRequestIllegal(), nil
-		} else {
-
-		}
+	switch req.BrokerData.Identity {
 	case pb.Credentials_Broker:
-
-	case pb.Credentials_Producer:
+		if s.MetaDataController == nil {
+			return &pb.HeartBeatResponseData{
+				Response: ResponseErrSourceNotExist(),
+			}, nil
+		} else {
+			ret := &pb.HeartBeatResponseData{
+				Response:             ResponseSuccess(),
+				ChangedTopic:         nil,
+				ChangedConsumerGroup: nil,
+			}
+			var err error
+			if req.CheckTopic != nil {
+				ret.ChangedTopic = &pb.HeartBeatResponseDataTpKv{}
+				ret.ChangedTopic.TopicTerm, err = s.MetaDataController.GetTopicTermDiff(req.CheckTopic.TopicTerm)
+				if err != nil {
+					return &pb.HeartBeatResponseData{Response: ErrToResponse(err)}, nil
+				}
+			}
+			if req.CheckConsumerGroup != nil {
+				ret.ChangedConsumerGroup = &pb.HeartBeatResponseDataCgKv{}
+				ret.ChangedConsumerGroup.ChangedGroup, err = s.MetaDataController.GetConsumerGroupTermDiff(req.CheckConsumerGroup.ConsumerGroup)
+				if err != nil {
+					return &pb.HeartBeatResponseData{Response: ErrToResponse(err)}, nil
+				}
+			}
+			return ret, nil
+		}
+	default:
+		return &pb.HeartBeatResponseData{
+			Response: ResponseErrRequestIllegal(),
+		}, nil
 	}
-	return nil, nil
 }
 
 type Partition struct {
@@ -359,9 +388,9 @@ func NewPartitionsController(handleTimeout ConsumerGroup.SessionLogoutNotifier) 
 }
 
 func (pc *PartitionsController) getPartition(t, p string) *Partition {
-	pc.mu.RLock()
+	pc.partsMu.RLock()
 	part, ok := pc.P[t+"/"+p]
-	pc.mu.RUnlock()
+	pc.partsMu.RUnlock()
 	if ok {
 		return part
 	}
@@ -369,8 +398,8 @@ func (pc *PartitionsController) getPartition(t, p string) *Partition {
 }
 
 func (ptc *PartitionsController) RegisterPart(t, p string, MaxEntries, MaxSize uint64) {
-	ptc.mu.Lock()
-	defer ptc.mu.Unlock()
+	ptc.partsMu.Lock()
+	defer ptc.partsMu.Unlock()
 	if MaxSize == -1 {
 		MaxSize = defaultMaxSize
 	}

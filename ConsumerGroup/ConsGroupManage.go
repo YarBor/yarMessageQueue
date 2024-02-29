@@ -27,6 +27,7 @@ func NewGroupsManager(sessionLogoutNotifier SessionLogoutNotifier) *GroupsManage
 type ConsumerGroup struct {
 	mu                   sync.RWMutex
 	GroupId              string
+	GroupTerm            int32
 	Consumers            *Consumer
 	MaxReturnMessageSize int32
 	ConsumeOffset        uint64 //ConsumeLastTimeGetDataOffset
