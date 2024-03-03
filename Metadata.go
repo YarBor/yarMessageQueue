@@ -126,6 +126,14 @@ type MetaDataController struct {
 	MD           *MetaData
 }
 
+func NewMetaDataController(node *RaftServer.RaftNode) *MetaDataController {
+	return &MetaDataController{
+		MetaDataRaft: node,
+		mu:           sync.RWMutex{},
+		MD:           NewMetaData(),
+	}
+}
+
 func (mdc *MetaDataController) ConfirmIdentity(target *pb.Credentials) error {
 	if !mdc.IsLeader() {
 		return errors.New(Err.ErrRequestNotLeader)
@@ -1963,9 +1971,10 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 					i.Response = ResponseErrPartitionChanged()
 					i.TopicTerm = tp.Part.Term
 					i.TopicData = &pb.CheckSourceTermResponse_PartsData{
-						FcParts: make([]*pb.Partition, 0, len(tp.Part.Parts)),
+						FcParts:                  make([]*pb.Partition, 0, len(tp.Part.Parts)),
+						FollowerProducerIDs:      &pb.CheckSourceTermResponse_IDs{ID: append(make([]string, 0, len(tp.FollowerProducers)), tp.FollowerProducers...)},
+						FollowerConsumerGroupIDs: &pb.CheckSourceTermResponse_IDs{ID: append(make([]string, 0, len(tp.FollowerGroupID)), tp.FollowerGroupID...)},
 					}
-
 					for _, part := range tp.Part.Parts {
 						p := &pb.Partition{
 							Topic:   tp.Name,

@@ -3,6 +3,7 @@ package MqServer
 import (
 	"MqServer/ConsumerGroup"
 	"MqServer/Err"
+	Log "MqServer/Log"
 	"MqServer/MessageMem"
 	"MqServer/RaftServer"
 	pb "MqServer/rpc"
@@ -11,6 +12,8 @@ import (
 	"google.golang.org/grpc"
 	"math"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 type Server interface {
@@ -28,18 +31,119 @@ type connections struct {
 	MetadataLeader *ServerClient
 }
 
+type brokerPeer struct {
+	Client pb.MqServerCallClient
+	Conn   *grpc.ClientConn
+	ID     string
+	Url    string
+}
+
 type broker struct {
 	pb.UnimplementedMqServerCallServer
-	RaftServer RaftServer.RaftServer
-	Url        string
-	ID         string
-	Key        string
-	Peers      map[string]*struct {
-		Client pb.MqServerCallClient
-		Conn   *grpc.ClientConn
+	RaftServer               *RaftServer.RaftServer
+	Url                      string
+	ID                       string
+	Key                      string
+	ProducerIDCache          sync.Map
+	CacheStayTimeMs          int32
+	MetadataLeaderID         atomic.Value // *string
+	MetadataPeers            map[string]*brokerPeer
+	MetaDataController       *MetaDataController
+	PartitionsController     *PartitionsController
+	IsStop                   bool
+	wg                       sync.WaitGroup
+	RequestTimeoutSessionsMs int32
+}
+
+func (bk *broker) CheckProducerTimeout() {
+	for !bk.IsStop {
+		now := time.Now().UnixMilli()
+		keysToDelete := make([]interface{}, 0)
+
+		bk.ProducerIDCache.Range(func(key, value interface{}) bool {
+			t := value.(int64)
+			if t <= now {
+				keysToDelete = append(keysToDelete, key)
+			}
+			return true
+		})
+
+		for _, key := range keysToDelete {
+			bk.ProducerIDCache.Delete(key)
+		}
 	}
-	MetaDataController   *MetaDataController
-	PartitionsController PartitionsController
+}
+func (bk *broker) Serve() error {
+	err := bk.feasibilityTest()
+	if err != nil {
+		return err
+	}
+	err = bk.RaftServer.Serve()
+	if err != nil {
+		return err
+	}
+	if bk.MetaDataController != nil {
+		bk.MetaDataController.MetaDataRaft.Start()
+	}
+	bk.wg.Add(1)
+	return nil
+}
+
+func (b *broker) CancelReg2Cluster(consumer *ConsumerGroup.Consumer) {
+}
+
+type BrokerOption func(*broker) error
+
+var MqCredentials *pb.Credentials
+
+// for option call
+func (b *broker) registerRaftNode() (err error) {
+	if b.MetaDataController == nil {
+		return errors.New(Err.ErrRequestIllegal)
+	}
+	ID_Url := []struct{ Url, ID string }{}
+	for ID, peer := range b.MetadataPeers {
+		ID_Url = append(ID_Url, struct{ Url, ID string }{Url: peer.Url, ID: ID})
+	}
+	b.MetaDataController.MetaDataRaft, err = b.RaftServer.RegisterMetadataRaft(ID_Url, b.MetaDataController, b.MetaDataController)
+	return err
+}
+
+func newBroker(option ...BrokerOption) (*broker, error) {
+	var err error
+	bk := &broker{
+		UnimplementedMqServerCallServer: pb.UnimplementedMqServerCallServer{},
+		MetadataLeaderID:                atomic.Value{},
+		MetadataPeers:                   nil,
+		MetaDataController:              nil,
+	}
+	bk.MetadataLeaderID.Store(new(string))
+	if err != nil {
+		return nil, err
+	}
+	for _, brokerOption := range option {
+		err = brokerOption(bk)
+		if err != nil {
+			return nil, err
+		}
+	}
+	bk.RaftServer, err = RaftServer.MakeRaftServer()
+	bk.PartitionsController = NewPartitionsController(bk)
+	if err = bk.feasibilityTest(); err != nil {
+		return nil, err
+	}
+	MqCredentials = &pb.Credentials{
+		Identity: pb.Credentials_Broker,
+		Id:       bk.ID,
+		Key:      bk.Key,
+	}
+	return bk, nil
+}
+func (bk *broker) feasibilityTest() error {
+	if bk.ID == "" || bk.Url == "" || bk.Key == "" || bk.MetadataPeers == nil {
+		return errors.New(Err.ErrRequestIllegal)
+	}
+	return nil
 }
 
 var (
@@ -48,13 +152,59 @@ var (
 )
 
 type PartitionsController struct {
-	tMu               sync.RWMutex
+	ttMu              sync.RWMutex
 	TopicTerm         map[string]*int32
 	cgMu              sync.RWMutex
 	ConsumerGroupTerm map[string]*int32
 	partsMu           sync.RWMutex
-	P                 map[string]*Partition // key: "Topic/Partition"
+	P                 map[string]*map[string]*Partition // key: "Topic/Partition"
 	handleTimeout     ConsumerGroup.SessionLogoutNotifier
+}
+
+func (p *PartitionsController) GetTopicTerm(id string) (int32, error) {
+	p.ttMu.RLock()
+	defer p.ttMu.RUnlock()
+	i, ok := p.TopicTerm[id]
+	if ok {
+		return atomic.LoadInt32(i), nil
+	} else {
+		return -1, errors.New(Err.ErrSourceNotExist)
+	}
+}
+func (p *PartitionsController) GetConsumerGroupTerm(id string) (int32, error) {
+	p.cgMu.RLock()
+	defer p.cgMu.RUnlock()
+	i, ok := p.ConsumerGroupTerm[id]
+	if ok {
+		return atomic.LoadInt32(i), nil
+	} else {
+		return -1, errors.New(Err.ErrSourceNotExist)
+	}
+}
+func (s *broker) GetMetadataServers() (func() *brokerPeer, func()) {
+	i := -2
+	peers := []*brokerPeer{}
+	for _, peer := range s.MetadataPeers {
+		peers = append(peers, peer)
+	}
+	return func() *brokerPeer {
+			i++
+			if i == -1 {
+				if ID := s.MetadataLeaderID.Load().(*string); *ID != "" {
+					if p, OK := s.MetadataPeers[*ID]; OK && p != nil {
+						return p
+					} else {
+						i++
+					}
+				}
+			}
+			return peers[i%len(peers)]
+		}, func() {
+			if i != -1 {
+				s.MetadataLeaderID.Store(&peers[i%len(peers)].ID)
+			}
+		}
+
 }
 
 // 客户端和server之间的心跳
@@ -299,7 +449,6 @@ func (s *broker) ConfirmIdentity(_ context.Context, req *pb.ConfirmIdentityReque
 		err := s.MetaDataController.ConfirmIdentity(req.CheckIdentity)
 		return &pb.ConfirmIdentityResponse{Response: ErrToResponse(err)}, nil
 	}
-
 }
 
 // TODO complete PULL PUSH HEARTBEAT
@@ -310,10 +459,175 @@ func (s *broker) PullMessage(_ context.Context, req *pb.PullMessageRequest) (*pb
 	return nil, nil
 }
 
+func (s *broker) checkProducer(cxt context.Context, Credential *pb.Credentials) error {
+	if Credential == nil {
+		return errors.New(Err.ErrRequestIllegal)
+	}
+	if _, ok := s.ProducerIDCache.Load(Credential.Id); !ok {
+		f, set := s.GetMetadataServers()
+		for {
+			select {
+			case <-cxt.Done():
+				return errors.New(Err.ErrRequestTimeout)
+			default:
+			}
+			cc := f()
+			res, err := cc.Client.ConfirmIdentity(cxt, &pb.ConfirmIdentityRequest{
+				Self:          MqCredentials,
+				CheckIdentity: Credential,
+			})
+			if err != nil {
+				Log.ERROR("Call False:", err.Error())
+			} else if res.Response.Mode != pb.Response_Success {
+				set()
+				break
+			} else {
+				Log.WARN(err.Error())
+			}
+		}
+		s.ProducerIDCache.Store(Credential.Id, s.CacheStayTimeMs)
+	}
+	return nil
+}
+
+func (s *broker) CheckSourceTermCall(ctx context.Context, req *pb.CheckSourceTermRequest) (res *pb.CheckSourceTermResponse, err error) {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, errors.New(Err.ErrRequestTimeout)
+		default:
+		}
+		f, set := s.GetMetadataServers()
+		for {
+			res, err = f().Client.CheckSourceTerm(context.Background(), req)
+			if err != nil {
+				Log.ERROR("Call False:", err.Error())
+			} else {
+				if res.Response.Mode == pb.Response_Success {
+					set()
+					return res, nil
+				} else {
+					Log.WARN("Call False:", res.Response)
+				}
+			}
+		}
+	}
+}
+
+func (bk *broker) UpdateTp(t string, req *pb.CheckSourceTermResponse) error {
+	if req.Response.Mode != pb.Response_Success || req.TopicData == nil {
+		return errors.New(Err.ErrRequestIllegal)
+	}
+	bk.PartitionsController.ttMu.RLock()
+	i, ok := bk.PartitionsController.TopicTerm[t]
+	bk.PartitionsController.ttMu.RUnlock()
+	termNow := atomic.LoadInt32(i)
+	if !ok {
+		//return errors.New(Err.ErrSourceNotExist)
+		if req.TopicData.FcParts[0].Topic != t {
+			return errors.New(Err.ErrRequestIllegal)
+		}
+		i = new(int32)
+		*i = -1
+		bk.PartitionsController.ttMu.Lock()
+		bk.PartitionsController.TopicTerm[t] = i
+		bk.PartitionsController.ttMu.Unlock()
+
+	} else if termNow >= req.TopicTerm {
+		return nil
+	}
+	bk.PartitionsController.partsMu.Lock()
+	if atomic.LoadInt32(i) >= req.TopicTerm {
+		bk.PartitionsController.partsMu.Unlock()
+		return nil
+	} else {
+		atomic.StoreInt32(i, req.TopicTerm)
+	}
+	if _, ok = bk.PartitionsController.P[t]; !ok {
+		bk.PartitionsController.P[t] = new(map[string]*Partition)
+	}
+	NewP := map[string]*Partition{}
+	var OldP *map[string]*Partition
+	for _, part := range req.TopicData.FcParts {
+		for _, brokerData := range part.Brokers {
+			if brokerData.Id == MqCredentials.Id {
+				goto Found
+			}
+		}
+		continue
+	Found:
+		if OldP, ok = bk.PartitionsController.P[part.Topic]; !ok {
+			panic("Ub")
+		} else {
+			if p, ok := (*OldP)[part.Part]; ok {
+				delete(*OldP, part.Part)
+				NewP[part.Part] = p
+			} else {
+				NewP[part.Part] = &Partition{
+					T:                    part.Topic,
+					P:                    part.Part,
+					ConsumerGroupManager: ConsumerGroup.NewGroupsManager(bk),
+					MessageEntry:         MessageMem.NewMessageEntry(defaultMaxEntries, defaultMaxSize),
+				}
+			}
+		}
+	}
+	for _, partition := range *OldP {
+		atomic.StoreInt32(&partition.Mode, Partition_Mode_ToDel)
+	}
+	bk.PartitionsController.P[t] = &NewP
+	bk.PartitionsController.partsMu.Unlock()
+	return nil
+}
+
 // 推送消息
-func (s *broker) PushMessage(_ context.Context, req *pb.PushMessageRequest) (*pb.PushMessageResponse, error) {
+func (s *broker) PushMessage(ctx context.Context, req *pb.PushMessageRequest) (*pb.PushMessageResponse, error) {
 	// TODO:
-	return nil, nil
+	if req.Credential.Key != s.Key {
+		return &pb.PushMessageResponse{Response: ResponseErrRequestIllegal()}, nil
+	}
+	err := s.checkProducer(ctx, req.Credential)
+	if err != nil {
+		return &pb.PushMessageResponse{Response: ErrToResponse(err)}, nil
+	}
+	term, err1 := s.PartitionsController.GetTopicTerm(req.Topic + "/" + req.Part)
+	if err1 != nil || req.TopicTerm != term {
+		res, err := s.CheckSourceTermCall(ctx, &pb.CheckSourceTermRequest{
+			Self: MqCredentials,
+			TopicData: &pb.CheckSourceTermRequest_TopicCheck{
+				Topic:     req.Topic,
+				TopicTerm: term,
+			},
+			ConsumerData: nil,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if res.TopicTerm == term {
+			return &pb.PushMessageResponse{Response: ResponseErrRequestIllegal()}, nil
+		} else {
+			err = s.UpdateTp(req.Topic, res)
+			if err != nil {
+				return nil, err
+			}
+			NowTime := time.Now().UnixMilli()
+			for _, id := range res.TopicData.FollowerProducerIDs.ID {
+				s.ProducerIDCache.Store(id, NowTime)
+			}
+			if _, ok := s.ProducerIDCache.Load(req.Credential.Id); ok {
+				return &pb.PushMessageResponse{Response: ResponseErrRequestIllegal()}, nil
+			}
+		}
+	}
+	p, err2 := s.PartitionsController.getPartition(req.Topic, req.Part)
+	if err2 != nil {
+		Log.ERROR(`Partition not found`)
+		return &pb.PushMessageResponse{Response: ResponseErrSourceNotExist()}, nil
+	}
+	for _, message := range req.Msgs {
+		p.MessageEntry.Write(message.Message)
+	}
+	return &pb.PushMessageResponse{Response: ResponseSuccess()}, nil
 }
 
 func (s *broker) Heartbeat(_ context.Context, req *pb.MQHeartBeatData) (*pb.HeartBeatResponseData, error) {
@@ -354,8 +668,14 @@ func (s *broker) Heartbeat(_ context.Context, req *pb.MQHeartBeatData) (*pb.Hear
 	}
 }
 
+var (
+	Partition_Mode_ToDel  = int32(1)
+	Partition_Mode_Normal = int32(0)
+)
+
 type Partition struct {
 	wg                   sync.WaitGroup
+	Mode                 int32
 	T                    string
 	P                    string
 	ConsumerGroupManager *ConsumerGroup.GroupsManager
@@ -365,6 +685,7 @@ type Partition struct {
 func newPartition(t, p string, MaxEntries, MaxSize uint64, handleTimeout ConsumerGroup.SessionLogoutNotifier) *Partition {
 	res := ConsumerGroup.NewGroupsManager(handleTimeout)
 	part := &Partition{
+		Mode:                 Partition_Mode_Normal,
 		T:                    t,
 		P:                    p,
 		ConsumerGroupManager: res,
@@ -382,19 +703,22 @@ func (p *Partition) registerConsumerGroup(groupId string, maxReturnMessageSize i
 
 func NewPartitionsController(handleTimeout ConsumerGroup.SessionLogoutNotifier) *PartitionsController {
 	return &PartitionsController{
-		P:             make(map[string]*Partition),
+		P:             make(map[string]*map[string]*Partition),
 		handleTimeout: handleTimeout,
 	}
 }
 
-func (pc *PartitionsController) getPartition(t, p string) *Partition {
+func (pc *PartitionsController) getPartition(t, p string) (*Partition, error) {
 	pc.partsMu.RLock()
-	part, ok := pc.P[t+"/"+p]
+	parts, ok := pc.P[t]
 	pc.partsMu.RUnlock()
 	if ok {
-		return part
+		part, ok := (*parts)[p]
+		if ok {
+			return part, nil
+		}
 	}
-	return nil
+	return nil, errors.New(Err.ErrSourceNotExist)
 }
 
 func (ptc *PartitionsController) RegisterPart(t, p string, MaxEntries, MaxSize uint64) {
@@ -406,5 +730,12 @@ func (ptc *PartitionsController) RegisterPart(t, p string, MaxEntries, MaxSize u
 	if MaxEntries == -1 {
 		MaxEntries = defaultMaxEntries
 	}
-	ptc.P[t+"/"+p] = newPartition(t, p, MaxEntries, MaxSize, ptc.handleTimeout)
+	if _, ok := ptc.P[t]; ok {
+	} else {
+		ptc.P[t] = new(map[string]*Partition)
+	}
+	_, ok := (*ptc.P[t])[p]
+	if !ok {
+		(*ptc.P[t])[p] = newPartition(t, p, MaxEntries, MaxSize, ptc.handleTimeout)
+	}
 }

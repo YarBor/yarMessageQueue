@@ -84,7 +84,7 @@ func (c *Consumer) TimeUpdate() {
 }
 
 type SessionLogoutNotifier interface {
-	cancelReg2Cluster(consumer *Consumer)
+	CancelReg2Cluster(consumer *Consumer)
 	//Notify metadata service to log out due to session termination
 }
 
@@ -107,7 +107,7 @@ func (gm *GroupsManager) HeartbeatCheck() {
 				if IsTimeout {
 					gm.wg.Add(1)
 					go func() {
-						gm.cancelReg2Cluster(Cons)
+						gm.CancelReg2Cluster(Cons)
 						gm.wg.Done()
 					}()
 				}

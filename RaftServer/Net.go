@@ -12,6 +12,7 @@ import (
 
 type ClientEnd struct {
 	pb.RaftCallClient
+	ID   string
 	Rfn  *RaftNode // father
 	Conn *grpc.ClientConn
 }

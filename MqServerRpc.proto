@@ -129,7 +129,14 @@ message CheckSourceTermResponse {
   Response response = 5;
   int32 TopicTerm = 1;
   int32 GroupTerm = 2;
-  message PartsData {repeated Partition FcParts = 3;}
+  message IDs {
+    repeated string ID = 1;
+  }
+  message PartsData {
+    repeated Partition FcParts = 3;
+    optional IDs FollowerProducerIDs = 2;
+    optional IDs FollowerConsumerGroupIDs = 1;
+  }
   optional PartsData ConsumersData = 16;
   optional PartsData TopicData = 6;
 }
@@ -305,7 +312,10 @@ message Message {bytes Message = 1;}
 
 message PushMessageRequest {
   Credentials credential = 1;
+  string topic = 4;
+  string part = 5;
   repeated Message Msgs = 2;
+  int32 TopicTerm = 3;
 }
 
 message PushMessageResponse {Response response = 1;}

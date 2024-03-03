@@ -13,7 +13,17 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 )
+
+const (
+	ErrNotLeader       = "not leader"
+	ErrCommitTimeout   = "commit timeout"
+	ErrNodeDidNotStart = "node did not start"
+)
+
+var commitTimeout time.Duration = time.Millisecond * 500
+var RaftLogSize = 1024 * 1024 * 2
 
 const (
 	RfNodeNotFound        = "RfNodeNotFound"
@@ -22,10 +32,195 @@ const (
 )
 
 var (
+	// for option set
 	RaftServerID        = ""
 	RaftServerUrl       = ""
 	isRaftAddrSet int32 = 0
 )
+
+type syncIdMap struct {
+	mu  sync.Mutex
+	Map map[uint32]struct {
+		fn func(err error, data interface{})
+	}
+}
+
+func (s *syncIdMap) Add(i uint32, fn func(err error, data interface{})) {
+	s.mu.Lock()
+	s.Map[i] = struct {
+		fn func(err error, data interface{})
+	}{fn: fn}
+	s.mu.Unlock()
+}
+
+func (s *syncIdMap) GetCallDelete(i uint32, err error, data interface{}) {
+	s.mu.Lock()
+	f, ok := s.Map[i]
+	if ok {
+		defer f.fn(err, data)
+		delete(s.Map, i)
+	}
+	s.mu.Unlock()
+}
+
+func (s *syncIdMap) Delete(i uint32) {
+	s.mu.Lock()
+	delete(s.Map, i)
+	s.mu.Unlock()
+}
+
+type CommandHandler interface {
+	Handle(interface{}) (error, interface{})
+}
+type SnapshotHandler interface {
+	MakeSnapshot() []byte
+	LoadSnapshot([]byte)
+}
+
+type RaftNode struct {
+	rf         *Raft
+	T          string
+	P          string
+	Peers      []*ClientEnd
+	me         int
+	ch         chan ApplyMsg
+	Persistent *Persister.Persister
+
+	idMap           syncIdMap
+	wg              sync.WaitGroup
+	commandIdOffset uint32
+
+	CommandHandler  CommandHandler
+	SnapshotHandler SnapshotHandler
+}
+
+func (rn *RaftNode) IsLeader() bool {
+	return rn.rf.IsLeader()
+}
+
+func (rn *RaftNode) CloseAllConn() {
+	for _, r := range rn.Peers {
+		if r != nil && r.Conn != nil {
+			r.Conn.Close()
+		}
+	}
+}
+
+func (rn *RaftNode) LinkPeerRpcServer(addr, id string) (*ClientEnd, error) {
+	conn, err := grpc.Dial(addr, grpc.WithInsecure())
+	if err != nil {
+		panic(err.Error())
+	}
+	res := &ClientEnd{
+		RaftCallClient: pb.NewRaftCallClient(conn),
+		ID:             id,
+		Rfn:            rn,
+		Conn:           conn,
+	}
+	return res, nil
+}
+
+func (rn *RaftNode) Stop() {
+	rn.rf.Kill()
+	rn.CloseAllConn()
+	rn.wg.Wait()
+}
+
+type Entry struct {
+	Id      uint32
+	command interface{}
+}
+
+func (rn *RaftNode) GetNewCommandId() uint32 {
+	return atomic.AddUint32(&rn.commandIdOffset, 1)
+}
+
+func (rn *RaftNode) Commit(command interface{}) (error, interface{}) {
+	entry := Entry{
+		Id:      rn.GetNewCommandId(),
+		command: command,
+	}
+	ch := make(chan struct {
+		err  error
+		data interface{}
+	}, 1)
+
+	f := func(err error, data interface{}) {
+		ch <- struct {
+			err  error
+			data interface{}
+		}{err: err, data: data}
+	}
+
+	if len(rn.Peers) == 1 {
+		rn.idMap.Add(entry.Id, f)
+		rn.ch <- ApplyMsg{
+			CommandValid: true,
+			Command:      command,
+		}
+	} else {
+		if rn.rf == nil || rn.rf.killed() {
+			return errors.New(ErrNodeDidNotStart), nil
+		}
+		if !rn.rf.IsLeader() {
+			return errors.New(ErrNotLeader), nil
+		}
+		rn.idMap.Add(entry.Id, f)
+		_, _, ok := rn.rf.Start(entry)
+		if !ok {
+			rn.idMap.Delete(entry.Id)
+			return errors.New(ErrNotLeader), nil
+		}
+	}
+	select {
+	case <-time.After(commitTimeout):
+		rn.idMap.Delete(entry.Id)
+		return errors.New(ErrCommitTimeout), nil
+	case p, ok := <-ch:
+		// success
+		if !ok {
+			panic("Ub")
+		} else {
+			return p.err, p.data
+		}
+	}
+}
+
+func (rn *RaftNode) CommandHandleFunc() {
+	defer rn.wg.Done()
+	for {
+		select {
+		case <-time.After(10 * time.Millisecond):
+			if rn.rf.killed() {
+				return
+			}
+		case applyMsg := <-rn.ch:
+			if applyMsg.CommandValid {
+				command, ok := applyMsg.Command.(Entry)
+				if !ok {
+					panic("not reflect command")
+				}
+				err, data := rn.CommandHandler.Handle(command)
+				rn.idMap.GetCallDelete(command.Id, err, data)
+				if rn.rf.persister.RaftStateSize() > RaftLogSize/3 {
+					bt := rn.SnapshotHandler.MakeSnapshot()
+					rn.rf.Snapshot(applyMsg.CommandIndex, bt)
+				}
+			} else if applyMsg.SnapshotValid {
+				rn.SnapshotHandler.LoadSnapshot(applyMsg.Snapshot)
+			}
+		}
+	}
+}
+
+func (rn *RaftNode) Start() {
+	if len(rn.Peers) == 1 {
+		return
+	}
+	rn.rf = Make(rn.Peers, rn.me, Persister.MakePersister(), rn.ch)
+	rn.wg.Add(1)
+	go rn.CommandHandleFunc()
+}
 
 type RaftServer struct {
 	pb.UnimplementedRaftCallServer
@@ -33,7 +228,7 @@ type RaftServer struct {
 	server       *grpc.Server
 	listener     net.Listener
 	Addr         string
-	metadataRaft *Raft
+	metadataRaft *RaftNode
 	rfs          map[string]map[string]*RaftNode
 }
 
@@ -49,7 +244,7 @@ func (rs *RaftServer) HeartBeat(_ context.Context, arg *pb.HeartBeatRequest) (rp
 	var rf *Raft
 	if tp, par := arg.GetTopic(), arg.GetPartition(); tp == "" || par == "" {
 		//panic("invalid topic argument and MessageMem argument")
-		rf = rs.metadataRaft
+		rf = rs.metadataRaft.rf
 	} else {
 		rfnode, ok := rs.rfs[tp][par]
 		if !ok {
@@ -86,7 +281,7 @@ func (rs *RaftServer) RequestPreVote(_ context.Context, arg *pb.RequestPreVoteRe
 
 	if tp, par := arg.GetTopic(), arg.GetPartition(); tp == "" || par == "" {
 		//panic("invalid topic argument and MessageMem argument")
-		rf = rs.metadataRaft
+		rf = rs.metadataRaft.rf
 	} else {
 		x, ok := rs.rfs[tp]
 		if !ok {
@@ -127,7 +322,7 @@ func (rs *RaftServer) RequestVote(_ context.Context, arg *pb.RequestVoteRequest)
 	var rf *Raft
 	if tp, par := arg.GetTopic(), arg.GetPartition(); tp == "" || par == "" {
 		//panic("invalid topic argument and MessageMem argument")
-		rf = rs.metadataRaft
+		rf = rs.metadataRaft.rf
 	} else {
 		x, ok := rs.rfs[tp]
 		if !ok {
@@ -162,7 +357,7 @@ func (rs *RaftServer) RequestVote(_ context.Context, arg *pb.RequestVoteRequest)
 }
 
 // url包含自己
-func (rs *RaftServer) RegisterRfNode(T, P string, NodesUrl []string, ch CommandHandler, sh SnapshotHandler) (*RaftNode, error) {
+func (rs *RaftServer) RegisterRfNode(T, P string, Nodes_Url_IDs []struct{ ID, Url string }, ch CommandHandler, sh SnapshotHandler) (*RaftNode, error) {
 	if atomic.LoadInt32(&isRaftAddrSet) == 0 {
 		return nil, errors.New(Err.ErrSourceNotExist)
 	}
@@ -173,7 +368,7 @@ func (rs *RaftServer) RegisterRfNode(T, P string, NodesUrl []string, ch CommandH
 		rf:              nil,
 		T:               T,
 		P:               P,
-		Peers:           make([]*ClientEnd, len(NodesUrl)),
+		Peers:           make([]*ClientEnd, len(Nodes_Url_IDs)),
 		me:              0,
 		ch:              make(chan ApplyMsg),
 		Persistent:      Persister.MakePersister(),
@@ -181,16 +376,17 @@ func (rs *RaftServer) RegisterRfNode(T, P string, NodesUrl []string, ch CommandH
 		CommandHandler:  ch,
 		SnapshotHandler: sh,
 	}
-	for i, n := range NodesUrl {
-		if n == RaftServerUrl {
+	for i, n := range Nodes_Url_IDs {
+		if n.Url == RaftServerUrl {
 			rn.me = i
 		} else {
-			peer, _ := rn.LinkPeerRpcServer(n)
+			peer, _ := rn.LinkPeerRpcServer(n.Url, n.ID)
 			rn.Peers[i] = peer
 		}
 	}
 	if rn.me == -1 {
-		panic("register node failed")
+		rn.CloseAllConn()
+		return nil, errors.New(Err.ErrRequestIllegal)
 	}
 	rs.mu.Lock()
 	_, ok := rs.rfs[T]
@@ -214,7 +410,7 @@ func SetRaftServerInfo(ID, Url string) bool {
 
 func MakeRaftServer() (*RaftServer, error) {
 	if RaftServerUrl == "" {
-		panic("RaftListenAddr must be set")
+		return nil, errors.New("RaftListenAddr must be set")
 	}
 	lis, err := net.Listen("tcp", RaftServerUrl)
 	if err != nil {
@@ -233,29 +429,37 @@ func MakeRaftServer() (*RaftServer, error) {
 	return res, nil
 }
 
-func (rs *RaftServer) RegisterMetadataRaft(urls []string, ch chan ApplyMsg) (*RaftNode, error) {
+func (rs *RaftServer) RegisterMetadataRaft(url_IDs []struct{ Url, ID string }, ch CommandHandler, sh SnapshotHandler) (*RaftNode, error) {
 	if atomic.LoadInt32(&isRaftAddrSet) == 0 {
 		return nil, errors.New(Err.ErrSourceNotExist)
 	}
 	T, P := "", ""
 	rn := RaftNode{
-		T:     T,
-		P:     P,
-		Peers: make([]*ClientEnd, len(urls)),
+		T:               T,
+		P:               P,
+		Peers:           make([]*ClientEnd, len(url_IDs)),
+		me:              -1,
+		ch:              make(chan ApplyMsg),
+		Persistent:      Persister.MakePersister(),
+		idMap:           syncIdMap{},
+		wg:              sync.WaitGroup{},
+		commandIdOffset: 0,
+		CommandHandler:  ch,
+		SnapshotHandler: sh,
 	}
-	selfIndex := -1
-	for i, n := range urls {
-		if n == RaftServerUrl {
-			selfIndex = i
+	for i, n := range url_IDs {
+		if n.Url == RaftServerUrl {
+			rn.me = i
 			continue
 		} else {
-			peer, _ := rn.LinkPeerRpcServer(n)
+			peer, _ := rn.LinkPeerRpcServer(n.Url, n.ID)
 			rn.Peers[i] = peer
 			rn.Peers[i].Rfn = &rn
 		}
 	}
-	if selfIndex == -1 {
-		panic("register node failed")
+	if rn.me == -1 {
+		rn.CloseAllConn()
+		return nil, errors.New(Err.ErrRequestIllegal)
 	}
 	rs.mu.Lock()
 	_, ok := rs.rfs[T]
@@ -264,8 +468,10 @@ func (rs *RaftServer) RegisterMetadataRaft(urls []string, ch chan ApplyMsg) (*Ra
 	}
 	rs.rfs[T][P] = &rn
 	rs.mu.Unlock()
-	rn.rf = Make(rn.Peers, selfIndex, Persister.MakePersister(), ch)
-	rs.metadataRaft = rn.rf
+	if ok {
+		return nil, errors.New(Err.ErrSourceAlreadyExist)
+	}
+	rs.metadataRaft = &rn
 	return &rn, nil
 }
 
