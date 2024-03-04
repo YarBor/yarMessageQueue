@@ -125,18 +125,26 @@ message UnSubscribeTopicResponse {Response response = 1;}
 //}
 //
 
+// 当身份是 broker 时 所有 option 均有效 ， 下载所有的分区信息
+
 message CheckSourceTermResponse {
-  Response response = 5;
-  int32 TopicTerm = 1;
-  int32 GroupTerm = 2;
   message IDs {
     repeated string ID = 1;
   }
   message PartsData {
-    repeated Partition FcParts = 3;
+    message Parts {
+      Partition FcParts = 3;
+      optional string ConsumerID = 1;
+      optional int32 ConsumerTimeoutSession = 11;
+      optional int32 ConsumerMaxReturnMessageSize = 12;
+    }
+    repeated Parts FcParts = 3;
     optional IDs FollowerProducerIDs = 2;
-    optional IDs FollowerConsumerGroupIDs = 1;
+    optional IDs FollowerConsumerGroupIDs = 1;  // TO Del ？
   }
+  Response response = 5;
+  int32 TopicTerm = 1;
+  int32 GroupTerm = 2;
   optional PartsData ConsumersData = 16;
   optional PartsData TopicData = 6;
 }
@@ -148,6 +156,7 @@ message CheckSourceTermRequest {
   }
   message ConsumerCheck {
     optional string ConsumerId = 13;
+    string GroupID = 1;
     int32 GroupTerm = 2;
   }
   Credentials Self = 3;

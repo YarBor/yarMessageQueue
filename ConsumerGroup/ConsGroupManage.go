@@ -25,22 +25,20 @@ func NewGroupsManager(sessionLogoutNotifier SessionLogoutNotifier) *GroupsManage
 }
 
 type ConsumerGroup struct {
-	mu                   sync.RWMutex
-	GroupId              string
-	GroupTerm            int32
-	Consumers            *Consumer
-	MaxReturnMessageSize int32
-	ConsumeOffset        uint64 //ConsumeLastTimeGetDataOffset
-	LastConsumeData      *[][]byte
+	mu              sync.RWMutex
+	GroupId         string
+	GroupTerm       int32
+	Consumers       *Consumer
+	ConsumeOffset   uint64 //ConsumeLastTimeGetDataOffset
+	LastConsumeData *[][]byte
 }
 
 func NewConsumerGroup(groupId string, maxReturnMessageSize int32) *ConsumerGroup {
 	return &ConsumerGroup{
-		GroupId:              groupId,
-		Consumers:            nil,
-		MaxReturnMessageSize: maxReturnMessageSize,
-		ConsumeOffset:        0,
-		LastConsumeData:      nil,
+		GroupId:         groupId,
+		Consumers:       nil,
+		ConsumeOffset:   0,
+		LastConsumeData: nil,
 	}
 }
 
@@ -50,20 +48,22 @@ const (
 )
 
 type Consumer struct {
-	Mode               int32
-	SelfId             string
-	GroupId            string
-	Time               int64 //NextTimeOutTime
-	TimeoutSessionMsec int32
+	Mode                 int32
+	SelfId               string
+	GroupId              string
+	Time                 int64 //NextTimeOutTime
+	TimeoutSessionMsec   int32
+	MaxReturnMessageSize int32
 }
 
-func NewConsumer(selfId string, groupId string, timeoutSessionMsec int32) *Consumer {
+func NewConsumer(selfId string, groupId string, timeoutSessionMsec, maxReturnMessageSize int32) *Consumer {
 	return &Consumer{
-		Mode:               ConsumerMode_Connect,
-		SelfId:             selfId,
-		GroupId:            groupId,
-		Time:               time.Now().UnixMilli() + int64(timeoutSessionMsec*2),
-		TimeoutSessionMsec: timeoutSessionMsec,
+		Mode:                 ConsumerMode_Connect,
+		SelfId:               selfId,
+		GroupId:              groupId,
+		Time:                 time.Now().UnixMilli() + int64(timeoutSessionMsec*2),
+		TimeoutSessionMsec:   timeoutSessionMsec,
+		MaxReturnMessageSize: maxReturnMessageSize,
 	}
 }
 
@@ -131,17 +131,31 @@ func (gm *GroupsManager) UnregisterConsumerGroup(GroupId string) error {
 	}
 }
 
-func (gm *GroupsManager) RegisterConsumerGroup(consumersGroup *ConsumerGroup) error {
+func (gm *GroupsManager) RegisterConsumerGroup(consumersGroup *ConsumerGroup) (*ConsumerGroup, error) {
 	if gm.IsStop {
-		return errors.New(Err.ErrSourceNotExist)
+		return nil, errors.New(Err.ErrSourceNotExist)
 	}
 	gm.mu.Lock()
 	defer gm.mu.Unlock()
 	if _, ok := gm.ID2ConsumerGroup[consumersGroup.GroupId]; !ok {
 		gm.ID2ConsumerGroup[consumersGroup.GroupId] = consumersGroup
-		return nil
+		return consumersGroup, nil
 	} else {
-		return errors.New(Err.ErrSourceAlreadyExist)
+		return nil, errors.New(Err.ErrSourceAlreadyExist)
+	}
+}
+
+func (gm *GroupsManager) GetConsumerGroup(groupId string) (*ConsumerGroup, error) {
+	if gm.IsStop {
+		return nil, errors.New(Err.ErrSourceNotExist)
+	}
+	gm.mu.RLock()
+	defer gm.mu.RUnlock()
+	i, ok := gm.ID2ConsumerGroup[groupId]
+	if ok {
+		return i, nil
+	} else {
+		return nil, errors.New(Err.ErrSourceNotExist)
 	}
 }
 

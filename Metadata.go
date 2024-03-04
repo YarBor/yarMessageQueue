@@ -2,6 +2,7 @@ package MqServer
 
 import (
 	"MqServer/Err"
+	Log "MqServer/Log"
 	"MqServer/RaftServer"
 	"MqServer/RaftServer/Pack"
 	"MqServer/Random"
@@ -194,6 +195,9 @@ func (mdc *MetaDataController) GetConsumerGroupTermDiff(Src map[string]int32) (m
 }
 
 func (mdc *MetaDataController) KeepBrokersAlive(id string) error {
+	if mdc.IsLeader() == false {
+		return errors.New(Err.ErrRequestNotLeader)
+	}
 	mdc.mu.RLock()
 	defer mdc.mu.RUnlock()
 	mdc.MD.bkMu.RLock()
@@ -1870,7 +1874,7 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 					TopicTerm: tp.Part.Term,
 					GroupTerm: 0,
 					TopicData: &pb.CheckSourceTermResponse_PartsData{
-						FcParts: make([]*pb.Partition, 0, len(tp.Part.Parts)),
+						FcParts: make([]*pb.CheckSourceTermResponse_PartsData_Parts, 0, len(tp.Part.Parts)),
 					},
 				}
 				for _, part := range tp.Part.Parts {
@@ -1885,11 +1889,14 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 							Url: member.Url,
 						})
 					}
-					i.TopicData.FcParts = append(i.TopicData.FcParts, p)
+					i.TopicData.FcParts = append(i.TopicData.FcParts, &pb.CheckSourceTermResponse_PartsData_Parts{
+						FcParts: p,
+					})
 				}
 				return i
 			}
 		}
+		// 通过 Cid 下载所属的分区
 	case pb.Credentials_ConsumerGroup:
 		if req.ConsumerData == nil {
 			return &pb.CheckSourceTermResponse{
@@ -1925,7 +1932,7 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 				Response:  ResponseErrPartitionChanged(),
 				GroupTerm: group.GroupTerm,
 				ConsumersData: &pb.CheckSourceTermResponse_PartsData{
-					FcParts: make([]*pb.Partition, 0, len(*data)),
+					FcParts: make([]*pb.CheckSourceTermResponse_PartsData_Parts, 0, len(*data)),
 				},
 			}
 			for _, fcp := range *data {
@@ -1940,12 +1947,16 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 						Url: url.Url,
 					})
 				}
-				i.ConsumersData.FcParts = append(i.ConsumersData.FcParts, p)
+				i.ConsumersData.FcParts = append(i.ConsumersData.FcParts, &pb.CheckSourceTermResponse_PartsData_Parts{
+					FcParts:    p,
+					ConsumerID: req.ConsumerData.ConsumerId,
+				})
 			}
 			group.mu.RUnlock()
 			return i
 		}
 
+		// 通过Gid下载所有的分区
 	case pb.Credentials_Broker:
 		i := &pb.CheckSourceTermResponse{
 			Response:      nil,
@@ -1971,7 +1982,7 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 					i.Response = ResponseErrPartitionChanged()
 					i.TopicTerm = tp.Part.Term
 					i.TopicData = &pb.CheckSourceTermResponse_PartsData{
-						FcParts:                  make([]*pb.Partition, 0, len(tp.Part.Parts)),
+						FcParts:                  make([]*pb.CheckSourceTermResponse_PartsData_Parts, 0, len(tp.Part.Parts)),
 						FollowerProducerIDs:      &pb.CheckSourceTermResponse_IDs{ID: append(make([]string, 0, len(tp.FollowerProducers)), tp.FollowerProducers...)},
 						FollowerConsumerGroupIDs: &pb.CheckSourceTermResponse_IDs{ID: append(make([]string, 0, len(tp.FollowerGroupID)), tp.FollowerGroupID...)},
 					}
@@ -1987,7 +1998,9 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 								Url: member.Url,
 							})
 						}
-						i.TopicData.FcParts = append(i.TopicData.FcParts, p)
+						i.TopicData.FcParts = append(i.TopicData.FcParts, &pb.CheckSourceTermResponse_PartsData_Parts{
+							FcParts: p,
+						})
 					}
 				}
 			}
@@ -2002,38 +2015,43 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 				return i
 			} else {
 				mdc.MD.cgMu.RLock()
-				group, ok := mdc.MD.ConsGroup[req.Self.Id]
+				group, ok := mdc.MD.ConsGroup[req.ConsumerData.GroupID]
 				mdc.MD.cgMu.RUnlock()
 				if !ok {
 					return &pb.CheckSourceTermResponse{Response: ResponseErrSourceNotExist()}
 				}
 
 				group.mu.RLock()
-				data, ok1 := group.ConsumersFcPart[*req.ConsumerData.ConsumerId]
-				if !ok1 {
-					group.mu.RUnlock()
-					return &pb.CheckSourceTermResponse{Response: ResponseErrSourceNotExist()}
-				}
 
 				i.Response = ResponseErrPartitionChanged()
 				i.GroupTerm = group.GroupTerm
 				i.ConsumersData = &pb.CheckSourceTermResponse_PartsData{
-					FcParts: make([]*pb.Partition, 0, len(*data)),
+					FcParts: make([]*pb.CheckSourceTermResponse_PartsData_Parts, 0, len(group.ConsumersFcPart)),
 				}
-
-				for _, fcp := range *data {
-					p := &pb.Partition{
-						Topic:   fcp.Topic,
-						Part:    fcp.Part,
-						Brokers: make([]*pb.BrokerData, 0, len(fcp.Urls)),
-					}
-					for _, url := range fcp.Urls {
-						p.Brokers = append(p.Brokers, &pb.BrokerData{
-							Id:  url.ID,
-							Url: url.Url,
+				for consID, fcps := range group.ConsumersFcPart {
+					for _, fcp := range *fcps {
+						p := &pb.Partition{
+							Topic:   fcp.Topic,
+							Part:    fcp.Part,
+							Brokers: make([]*pb.BrokerData, 0, len(fcp.Urls)),
+						}
+						for _, url := range fcp.Urls {
+							p.Brokers = append(p.Brokers, &pb.BrokerData{
+								Id:  url.ID,
+								Url: url.Url,
+							})
+						}
+						cons, err := mdc.MD.QueryConsumer(consID)
+						if err != nil {
+							Log.ERROR("Error querying consumer")
+						}
+						i.ConsumersData.FcParts = append(i.ConsumersData.FcParts, &pb.CheckSourceTermResponse_PartsData_Parts{
+							FcParts:                      p,
+							ConsumerID:                   &consID,
+							ConsumerTimeoutSession:       &cons.TimeoutSessionMsec,
+							ConsumerMaxReturnMessageSize: &cons.MaxReturnMessageSize,
 						})
 					}
-					i.ConsumersData.FcParts = append(i.ConsumersData.FcParts, p)
 				}
 				group.mu.RUnlock()
 			}
@@ -2083,6 +2101,7 @@ func (mdc *MetaDataController) CheckBrokersAlive() {
 	}
 }
 
+// TODO: go
 func (mdc *MetaDataController) ConsumerDisConnect(info *pb.DisConnectInfo) *pb.Response {
 	if !mdc.IsLeader() {
 		return ResponseErrNotLeader()
@@ -2104,10 +2123,15 @@ func (mdc *MetaDataController) ConsumerDisConnect(info *pb.DisConnectInfo) *pb.R
 	})
 
 	for _, part := range data.ConsumersData.FcParts {
-		for _, brokerData := range part.Brokers {
-			if brokerData.Id == info.BrokerInfo.Id {
-				go mdc.UnRegisterConsumer(&pb.UnRegisterConsumerRequest{Credential: info.TargetInfo})
-				return ResponseSuccess()
+		if part.ConsumerID == nil {
+			Log.FATAL("Consumer Protocol Error")
+		}
+		if *part.ConsumerID == info.TargetInfo.Id {
+			for _, brokerData := range part.FcParts.Brokers {
+				if brokerData.Id == info.BrokerInfo.Id {
+					go mdc.UnRegisterConsumer(&pb.UnRegisterConsumerRequest{Credential: info.TargetInfo})
+					return ResponseSuccess()
+				}
 			}
 		}
 	}

@@ -53,9 +53,11 @@ type broker struct {
 	IsStop                   bool
 	wg                       sync.WaitGroup
 	RequestTimeoutSessionsMs int32
+	HeartBeatSessionsMs      int32
 }
 
 func (bk *broker) CheckProducerTimeout() {
+	defer bk.wg.Done()
 	for !bk.IsStop {
 		now := time.Now().UnixMilli()
 		keysToDelete := make([]interface{}, 0)
@@ -73,6 +75,61 @@ func (bk *broker) CheckProducerTimeout() {
 		}
 	}
 }
+
+func (bk *broker) goSendHeartbeat(ch chan *pb.CheckSourceTermRequest) {
+	defer bk.wg.Done()
+	for !bk.IsStop {
+		for ID, peer := range bk.MetadataPeers {
+			for {
+				if !bk.IsStop {
+					return
+				}
+				req := pb.MQHeartBeatData{
+					BrokerData:         MqCredentials,
+					CheckTopic:         &pb.MQHeartBeatDataTpKv{TopicTerm: make(map[string]int32)},
+					CheckConsumerGroup: &pb.MQHeartBeatDataCgKv{ConsumerGroup: make(map[string]int32)},
+				}
+				bk.PartitionsController.cgMu.RLock()
+				for s, i := range bk.PartitionsController.ConsumerGroupTerm {
+					req.CheckConsumerGroup.ConsumerGroup[s] = atomic.LoadInt32(i)
+				}
+				bk.PartitionsController.cgMu.RUnlock()
+				bk.PartitionsController.ttMu.RLock()
+				for s, i := range bk.PartitionsController.TopicTerm {
+					req.CheckTopic.TopicTerm[s] = atomic.LoadInt32(i)
+				}
+				bk.PartitionsController.ttMu.RUnlock()
+				res, err := peer.Client.Heartbeat(context.Background(), &req)
+				if err != nil {
+					goto next
+				}
+				if res.Response.Mode != pb.Response_Success {
+					if res.ChangedTopic != nil {
+						bk.wg.Add(1)
+						go func() {
+							defer bk.wg.Done()
+							for Tp, _ := range res.ChangedTopic.TopicTerm {
+								ch <- &pb.CheckSourceTermRequest{
+									Self: MqCredentials,
+									TopicData: &pb.CheckSourceTermRequest_TopicCheck{
+										Topic:     Tp,
+										TopicTerm: req.CheckTopic.TopicTerm[Tp],
+									},
+									ConsumerData: nil,
+								}
+							}
+						}()
+					}
+				}
+				time.Sleep(time.Duration(bk.RequestTimeoutSessionsMs) * time.Millisecond)
+				bk.MetadataLeaderID.Store(&ID)
+			}
+
+		next:
+		}
+	}
+}
+
 func (bk *broker) Serve() error {
 	err := bk.feasibilityTest()
 	if err != nil {
@@ -85,11 +142,34 @@ func (bk *broker) Serve() error {
 	if bk.MetaDataController != nil {
 		bk.MetaDataController.MetaDataRaft.Start()
 	}
-	bk.wg.Add(1)
+	ch := make(chan *pb.CheckSourceTermRequest)
+	bk.wg.Add(3)
+	go bk.CheckProducerTimeout()
+	go bk.goSendHeartbeat(ch)
+	go bk.keepUpdates(ch)
 	return nil
 }
 
 func (b *broker) CancelReg2Cluster(consumer *ConsumerGroup.Consumer) {
+	f, s := b.GetMetadataServers()
+	for {
+		cc := f()
+		res, err := cc.Client.ConsumerDisConnect(context.Background(), &pb.DisConnectInfo{
+			BrokerInfo: MqCredentials,
+			TargetInfo: &pb.Credentials{
+				Identity: pb.Credentials_Consumer,
+				Id:       consumer.SelfId,
+				Key:      b.Key,
+			},
+		})
+		if err != nil || res.Mode != pb.Response_Success {
+			Log.WARN("CancelReg2Cluster Call False")
+			continue
+		} else {
+			s()
+			return
+		}
+	}
 }
 
 type BrokerOption func(*broker) error
@@ -513,42 +593,132 @@ func (s *broker) CheckSourceTermCall(ctx context.Context, req *pb.CheckSourceTer
 		}
 	}
 }
-
-func (bk *broker) UpdateTp(t string, req *pb.CheckSourceTermResponse) error {
-	if req.Response.Mode != pb.Response_Success || req.TopicData == nil {
+func (bk *broker) UpdateCg(CId, CgId string, req *pb.CheckSourceTermResponse) error {
+	if req.Response.Mode != pb.Response_Success || req.ConsumersData == nil || req.ConsumerTimeoutSession == nil || req.ConsumerMaxReturnMessageSize == nil {
 		return errors.New(Err.ErrRequestIllegal)
 	}
-	bk.PartitionsController.ttMu.RLock()
-	i, ok := bk.PartitionsController.TopicTerm[t]
-	bk.PartitionsController.ttMu.RUnlock()
-	termNow := atomic.LoadInt32(i)
-	if !ok {
-		//return errors.New(Err.ErrSourceNotExist)
-		if req.TopicData.FcParts[0].Topic != t {
-			return errors.New(Err.ErrRequestIllegal)
-		}
-		i = new(int32)
-		*i = -1
-		bk.PartitionsController.ttMu.Lock()
-		bk.PartitionsController.TopicTerm[t] = i
-		bk.PartitionsController.ttMu.Unlock()
+	bk.PartitionsController.cgMu.RLock()
+	term, ok := bk.PartitionsController.ConsumerGroupTerm[CgId]
+	bk.PartitionsController.cgMu.RUnlock()
 
-	} else if termNow >= req.TopicTerm {
+	if !ok {
+		for _, part := range req.ConsumersData.FcParts {
+			for _, brokerData := range part.Brokers {
+				if brokerData.Id == bk.ID {
+					goto success
+				}
+			}
+		}
+		return errors.New(Err.ErrSourceNotExist)
+	success:
+		term = new(int32)
+		*term = -1
+		bk.PartitionsController.cgMu.Lock()
+		if _, ok = bk.PartitionsController.ConsumerGroupTerm[CgId]; ok {
+			bk.PartitionsController.cgMu.Unlock()
+			return errors.New(Err.ErrSourceAlreadyExist)
+		} else {
+			bk.PartitionsController.ConsumerGroupTerm[CgId] = term
+		}
+		bk.PartitionsController.cgMu.Unlock()
+	} else if atomic.LoadInt32(term) >= req.GroupTerm {
 		return nil
 	}
+
 	bk.PartitionsController.partsMu.Lock()
-	if atomic.LoadInt32(i) >= req.TopicTerm {
-		bk.PartitionsController.partsMu.Unlock()
+	defer bk.PartitionsController.partsMu.Unlock()
+	if atomic.LoadInt32(term) >= req.GroupTerm {
 		return nil
 	} else {
-		atomic.StoreInt32(i, req.TopicTerm)
+		// 更新 term 值
+		atomic.StoreInt32(term, req.TopicTerm)
 	}
+	for _, part := range req.ConsumersData.FcParts {
+		for _, brokerData := range part.Brokers {
+			if brokerData.Id == bk.ID {
+				p := bk.PartitionsController.GetPart(part.Topic, part.Part)
+				if p == nil {
+					p, _ = bk.PartitionsController.RegisterPart(part.Topic, part.Part, defaultMaxEntries, defaultMaxSize)
+				}
+				g, err := p.ConsumerGroupManager.GetConsumerGroup(CgId)
+				if err != nil {
+					g, err = p.ConsumerGroupManager.RegisterConsumerGroup(&ConsumerGroup.ConsumerGroup{
+						GroupId:         CgId,
+						GroupTerm:       req.GroupTerm,
+						Consumers:       ConsumerGroup.NewConsumer(CId, CgId, *req.ConsumerTimeoutSession, *req.ConsumerMaxReturnMessageSize),
+						ConsumeOffset:   0,
+						LastConsumeData: nil,
+					})
+				} else {
+					g.Consumers = ConsumerGroup.NewConsumer(CId, CgId, *req.ConsumerTimeoutSession, *req.ConsumerMaxReturnMessageSize)
+				}
+			}
+		}
+	}
+	return nil
+}
+func (bk *broker) UpdateTp(t string, UpdateReq *pb.CheckSourceTermResponse) error {
+	// 检查响应模式是否为成功，以及 TopicData 是否为 nil
+	if UpdateReq.Response.Mode != pb.Response_Success || UpdateReq.TopicData == nil || UpdateReq.TopicData.FcParts == nil {
+		return errors.New(Err.ErrRequestIllegal)
+	}
+
+	// 获取 TopicTerm 锁，读取当前的 term 值
+	bk.PartitionsController.ttMu.RLock()
+	term, ok := bk.PartitionsController.TopicTerm[t]
+	bk.PartitionsController.ttMu.RUnlock()
+
+	//termNow :=
+	if !ok {
+		for _, part := range UpdateReq.TopicData.FcParts {
+			for _, bkData := range part.Brokers {
+				if bkData.Id == bk.ID {
+					goto Success
+				}
+			}
+		}
+		return errors.New(Err.ErrRequestIllegal)
+	Success:
+		// 创建一个新的 int32 指针，并将其值设置为 -1
+		term = new(int32)
+		*term = -1
+
+		// 获取 TopicTerm 锁，将新的 int32 指针添加到 TopicTerm 中
+		bk.PartitionsController.ttMu.Lock()
+		if _, ok := bk.PartitionsController.TopicTerm[t]; ok {
+			bk.PartitionsController.ttMu.Unlock()
+			return errors.New(Err.ErrSourceAlreadyExist)
+		} else {
+			bk.PartitionsController.TopicTerm[t] = term
+		}
+		bk.PartitionsController.ttMu.Unlock()
+	} else if atomic.LoadInt32(term) >= UpdateReq.TopicTerm {
+		// 如果当前的 term 值大于等于请求的 TopicTerm，则不进行更新
+		return nil
+	}
+
+	// 获取 partitions 锁
+	bk.PartitionsController.partsMu.Lock()
+	defer bk.PartitionsController.partsMu.Unlock()
+
+	if atomic.LoadInt32(term) >= UpdateReq.TopicTerm {
+		// 如果当前的 term 值大于等于请求的 TopicTerm，则不进行更新
+		return nil
+	} else {
+		// 更新 term 值
+		atomic.StoreInt32(term, UpdateReq.TopicTerm)
+	}
+
+	// 检查 P 中是否存在 t，如果不存在，则添加一个新的 map[string]*Partition
 	if _, ok = bk.PartitionsController.P[t]; !ok {
 		bk.PartitionsController.P[t] = new(map[string]*Partition)
 	}
+
 	NewP := map[string]*Partition{}
 	var OldP *map[string]*Partition
-	for _, part := range req.TopicData.FcParts {
+
+	// 遍历请求的 TopicData 中的分区和 broker 数据
+	for _, part := range UpdateReq.TopicData.FcParts {
 		for _, brokerData := range part.Brokers {
 			if brokerData.Id == MqCredentials.Id {
 				goto Found
@@ -560,9 +730,11 @@ func (bk *broker) UpdateTp(t string, req *pb.CheckSourceTermResponse) error {
 			panic("Ub")
 		} else {
 			if p, ok := (*OldP)[part.Part]; ok {
+				// 如果旧的 Partition 存在，则将其从 OldP 中删除，并添加到 NewP 中
 				delete(*OldP, part.Part)
 				NewP[part.Part] = p
 			} else {
+				// 如果旧的 Partition 不存在，则创建一个新的 Partition 并添加到 NewP 中
 				NewP[part.Part] = &Partition{
 					T:                    part.Topic,
 					P:                    part.Part,
@@ -572,11 +744,16 @@ func (bk *broker) UpdateTp(t string, req *pb.CheckSourceTermResponse) error {
 			}
 		}
 	}
-	for _, partition := range *OldP {
+
+	// 将 OldP 中剩余的 Partition 的 Mode 设置为 Partition_Mode_ToDel
+	for k, partition := range *OldP {
 		atomic.StoreInt32(&partition.Mode, Partition_Mode_ToDel)
+		NewP[k] = partition
 	}
+
+	// 将 NewP 赋值给 P[t]
 	bk.PartitionsController.P[t] = &NewP
-	bk.PartitionsController.partsMu.Unlock()
+
 	return nil
 }
 
@@ -590,39 +767,36 @@ func (s *broker) PushMessage(ctx context.Context, req *pb.PushMessageRequest) (*
 	if err != nil {
 		return &pb.PushMessageResponse{Response: ErrToResponse(err)}, nil
 	}
-	term, err1 := s.PartitionsController.GetTopicTerm(req.Topic + "/" + req.Part)
-	if err1 != nil || req.TopicTerm != term {
-		res, err := s.CheckSourceTermCall(ctx, &pb.CheckSourceTermRequest{
-			Self: MqCredentials,
-			TopicData: &pb.CheckSourceTermRequest_TopicCheck{
-				Topic:     req.Topic,
-				TopicTerm: term,
-			},
-			ConsumerData: nil,
-		})
+	termSelf, GetTopicTermErr := s.PartitionsController.GetTopicTerm(req.Topic)
+	res, CheckSrcTermErr := s.CheckSourceTermCall(ctx, &pb.CheckSourceTermRequest{Self: MqCredentials, TopicData: &pb.CheckSourceTermRequest_TopicCheck{Topic: req.Topic, TopicTerm: termSelf}, ConsumerData: nil})
+	if CheckSrcTermErr != nil {
+		return &pb.PushMessageResponse{Response: ErrToResponse(CheckSrcTermErr)}, nil
+	}
+	if res.TopicTerm != termSelf {
+		err = s.UpdateTp(req.Topic, res)
 		if err != nil {
-			return nil, err
-		}
-		if res.TopicTerm == term {
-			return &pb.PushMessageResponse{Response: ResponseErrRequestIllegal()}, nil
+			return &pb.PushMessageResponse{Response: ErrToResponse(err)}, nil
 		} else {
-			err = s.UpdateTp(req.Topic, res)
-			if err != nil {
-				return nil, err
-			}
-			NowTime := time.Now().UnixMilli()
+			NowTime := time.Now().UnixMilli() + int64(2*s.CacheStayTimeMs)
 			for _, id := range res.TopicData.FollowerProducerIDs.ID {
 				s.ProducerIDCache.Store(id, NowTime)
 			}
-			if _, ok := s.ProducerIDCache.Load(req.Credential.Id); ok {
-				return &pb.PushMessageResponse{Response: ResponseErrRequestIllegal()}, nil
-			}
 		}
+		termSelf, GetTopicTermErr = s.PartitionsController.GetTopicTerm(req.Topic)
 	}
-	p, err2 := s.PartitionsController.getPartition(req.Topic, req.Part)
-	if err2 != nil {
+	if GetTopicTermErr != nil {
+		return &pb.PushMessageResponse{Response: ErrToResponse(err)}, nil
+	} else if req.TopicTerm < termSelf {
+		return &pb.PushMessageResponse{Response: ResponseErrPartitionChanged()}, nil
+	} else if req.TopicTerm > termSelf {
+		return &pb.PushMessageResponse{Response: ResponseErrRequestIllegal()}, nil //
+	} else {
+		s.ProducerIDCache.Store(req.Credential.Id, time.Now().UnixMilli()+int64(2*s.CacheStayTimeMs))
+	}
+	p, GetPartErr := s.PartitionsController.getPartition(req.Topic, req.Part)
+	if GetPartErr != nil {
 		Log.ERROR(`Partition not found`)
-		return &pb.PushMessageResponse{Response: ResponseErrSourceNotExist()}, nil
+		return &pb.PushMessageResponse{Response: ErrToResponse(err)}, nil
 	}
 	for _, message := range req.Msgs {
 		p.MessageEntry.Write(message.Message)
@@ -645,6 +819,10 @@ func (s *broker) Heartbeat(_ context.Context, req *pb.MQHeartBeatData) (*pb.Hear
 				ChangedConsumerGroup: nil,
 			}
 			var err error
+			err = s.MetaDataController.KeepBrokersAlive(req.BrokerData.Id)
+			if err != nil {
+				return &pb.HeartBeatResponseData{Response: ErrToResponse(err)}, nil
+			}
 			if req.CheckTopic != nil {
 				ret.ChangedTopic = &pb.HeartBeatResponseDataTpKv{}
 				ret.ChangedTopic.TopicTerm, err = s.MetaDataController.GetTopicTermDiff(req.CheckTopic.TopicTerm)
@@ -665,6 +843,20 @@ func (s *broker) Heartbeat(_ context.Context, req *pb.MQHeartBeatData) (*pb.Hear
 		return &pb.HeartBeatResponseData{
 			Response: ResponseErrRequestIllegal(),
 		}, nil
+	}
+}
+
+func (bk *broker) keepUpdates(ch chan *pb.CheckSourceTermRequest) {
+	defer bk.wg.Done()
+	for {
+		select {
+		case <-ch:
+		default:
+			if bk.IsStop {
+				return
+			}
+			time.Sleep(time.Millisecond * 50)
+		}
 	}
 }
 
@@ -697,7 +889,7 @@ func newPartition(t, p string, MaxEntries, MaxSize uint64, handleTimeout Consume
 
 }
 
-func (p *Partition) registerConsumerGroup(groupId string, maxReturnMessageSize int32) error {
+func (p *Partition) registerConsumerGroup(groupId string, maxReturnMessageSize int32) (*ConsumerGroup.ConsumerGroup, error) {
 	return p.ConsumerGroupManager.RegisterConsumerGroup(ConsumerGroup.NewConsumerGroup(groupId, maxReturnMessageSize))
 }
 
@@ -721,7 +913,7 @@ func (pc *PartitionsController) getPartition(t, p string) (*Partition, error) {
 	return nil, errors.New(Err.ErrSourceNotExist)
 }
 
-func (ptc *PartitionsController) RegisterPart(t, p string, MaxEntries, MaxSize uint64) {
+func (ptc *PartitionsController) RegisterPart(t, p string, MaxEntries, MaxSize uint64) (part *Partition, err error) {
 	ptc.partsMu.Lock()
 	defer ptc.partsMu.Unlock()
 	if MaxSize == -1 {
@@ -730,12 +922,30 @@ func (ptc *PartitionsController) RegisterPart(t, p string, MaxEntries, MaxSize u
 	if MaxEntries == -1 {
 		MaxEntries = defaultMaxEntries
 	}
-	if _, ok := ptc.P[t]; ok {
+	ok := false
+	if _, ok = ptc.P[t]; ok {
 	} else {
 		ptc.P[t] = new(map[string]*Partition)
 	}
-	_, ok := (*ptc.P[t])[p]
+	part, ok = (*ptc.P[t])[p]
 	if !ok {
-		(*ptc.P[t])[p] = newPartition(t, p, MaxEntries, MaxSize, ptc.handleTimeout)
+		part = newPartition(t, p, MaxEntries, MaxSize, ptc.handleTimeout)
+		(*ptc.P[t])[p] = part
 	}
+	return part, nil
+}
+
+func (ptc *PartitionsController) GetPart(t, p string) (part *Partition) {
+	ptc.partsMu.Lock()
+	defer ptc.partsMu.Unlock()
+	ok := false
+	if _, ok = ptc.P[t]; ok {
+	} else {
+		return nil
+	}
+	part, ok = (*ptc.P[t])[p]
+	if !ok {
+		return nil
+	}
+	return part
 }

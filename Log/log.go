@@ -15,15 +15,15 @@ func SetLogFlags(flags int) {
 }
 
 const (
-	_TRACE = 1
-	_DEBUG = 2
-	_INFO  = 3
-	_WARN  = 4
-	_ERROR = 5
-	_FATAL = 6
+	_TRACE = iota
+	_DEBUG
+	_INFO
+	_WARN
+	_ERROR
+	_FATAL
 )
 
-var logLevel int = 2
+var logLevel int = _DEBUG
 
 func init() {
 	log.SetFlags(log.Lmicroseconds)
@@ -47,36 +47,36 @@ func SetLogLevel(l int) error {
 
 func TRACE(i ...interface{}) {
 	if logLevel <= _TRACE {
-		log.Printf("TRACE : %v\n", i...)
+		log.Print("TRACE : ", i)
 	}
 }
 
 func DEBUG(i ...interface{}) {
 	if logLevel <= _DEBUG {
-		log.Printf("DEBUG : %v\n", i...)
+		log.Print("DEBUG : ", i)
 	}
 }
 
 func INFO(i ...interface{}) {
 	if logLevel <= _INFO {
-		log.Printf("INFO : %v\n", i...)
+		log.Print("INFO : ", i)
 	}
 }
 
 func WARN(i ...interface{}) {
 	if logLevel <= _WARN {
-		log.Printf("WARN : %v\n", i...)
+		log.Print("WARN : ", i)
 	}
 }
 
 func ERROR(i ...interface{}) {
 	if logLevel <= _ERROR {
-		log.Printf("ERROR : %v\n", i...)
+		log.Print("ERROR : ", i)
 	}
 }
 
 func FATAL(i ...interface{}) {
 	if logLevel <= _FATAL {
-		log.Fatalf("FATAL : %v\n", i)
+		log.Fatal("FATAL : ", i)
 	}
 }
