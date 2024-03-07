@@ -57,10 +57,11 @@ func (b *Block) write(entry []byte) {
 	b.Nums++
 	b.Size += int64(len(entry))
 }
-func (b *Block) read(needReadEntBegin, entNum int64) ([][]byte, int64, int64) {
+func (b *Block) read(needReadEntBegin, entNum int64) (
+	/*data*/ [][]byte /*readNum*/, int64 /*jumpNum*/, int64 /*ReadSize*/, int64) {
 	var res [][]byte
 	if needReadEntBegin > b.Nums {
-		return nil, 0, b.Nums
+		return nil, 0, b.Nums, 0
 	} else {
 		if needReadEntBegin+entNum > b.Nums {
 			res = b.Data[needReadEntBegin-1:]
@@ -68,7 +69,11 @@ func (b *Block) read(needReadEntBegin, entNum int64) ([][]byte, int64, int64) {
 			res = b.Data[needReadEntBegin-1 : needReadEntBegin+entNum]
 		}
 	}
-	return res, int64(len(res)), 0
+	Size := int64(0)
+	for _, re := range res {
+		Size += int64(len(re))
+	}
+	return res, int64(len(res)), 0, Size
 }
 
 func (ebs *EntryBlocks) GetMaxSize() int64 {
@@ -94,42 +99,48 @@ func (ebs *EntryBlocks) Write(entry []byte) {
 	ebs.mu.Unlock()
 }
 
-func (ebs *EntryBlocks) read(EntryBegin, entNum int64) ([][]byte, int64) {
-	res := make([][]byte, 0, entNum)
+func (ebs *EntryBlocks) read(EntryBegin, MaxEntries, MaxSize int64) ([][]byte, int64) {
+	res := make([][]byte, 0)
 	var readVal [][]byte
-	var readNum int64
-	var jumpNum int64
+	var readNum, jumpNum, ReadSize, ReadSizeAll int64
 	for i := 0; i < len(ebs.Ens); i++ {
 		ebs.Ens[i].mu.RLock()
-		readVal, readNum, jumpNum = ebs.Ens[i].read(EntryBegin, entNum)
+		readVal, readNum, jumpNum, ReadSize = ebs.Ens[i].read(EntryBegin, MaxEntries)
 		ebs.Ens[i].mu.RUnlock()
 		if jumpNum != 0 {
 			EntryBegin -= jumpNum
+		} else if MaxSize < ReadSizeAll {
+			break
 		} else {
-			if readNum == entNum {
+			ReadSizeAll += ReadSize
+			if readNum == MaxEntries {
 				res = readVal
+			} else if readNum > MaxEntries {
+				res = append(res, readVal[:MaxEntries]...)
+				break
 			} else {
 				res = append(res, readVal...)
 			}
-			if int64(len(res)) == entNum {
+			if int64(len(res)) == MaxEntries {
 				break
 			}
-			entNum -= readNum
+			MaxEntries -= readNum
 		}
 	}
 	return res, int64(len(res))
 }
 
-func (ebs *EntryBlocks) Read(offset, num int64) (res [][]byte, readEntriesNumb int64, NowOffset int64) {
+func (ebs *EntryBlocks) Read(offset, maxEntries, maxSize int64) (
+	res [][]byte, readEntriesNumb int64, NowOffset int64) {
 	ebs.mu.RLock()
 	defer ebs.mu.RUnlock()
-	if num <= 0 {
+	if maxEntries <= 0 {
 		panic("EntryBlocks get negative number")
 	}
 	if offset < ebs.BeginOffset {
 		offset = ebs.BeginOffset
 	}
-	res, readEntriesNumb = ebs.read(offset, num)
+	res, readEntriesNumb = ebs.read(offset, maxEntries, maxSize)
 	return res, readEntriesNumb, offset + readEntriesNumb
 }
 
@@ -144,6 +155,11 @@ type MessageEntry struct {
 	SizeNow    uint64
 }
 
+func (m *MessageEntry) IsClearToDel(off int64) bool {
+	_, num := m.Read(off, 1, -1)
+	return num <= 0
+}
+
 func (me *MessageEntry) Write(bt []byte) {
 	me.En.Write(bt)
 	atomic.AddUint64(&me.EntriesNow, 1)
@@ -156,8 +172,19 @@ func (me *MessageEntry) Write(bt []byte) {
 	}
 }
 
-func (me *MessageEntry) Read(offset, num int64) ([][]byte, int64) {
-	return me.En.read(offset, num)
+var (
+	defaultMaxEntries = int32(5)
+	defaultMaxSize    = int32(1024 * 1024)
+)
+
+func (me *MessageEntry) Read(offset int64, MaxEntries, MaxSize int32) ([][]byte, int64) {
+	if MaxEntries <= 0 {
+		MaxEntries = defaultMaxEntries
+	}
+	if MaxSize <= 0 {
+		MaxSize = defaultMaxSize
+	}
+	return me.En.read(offset, int64(MaxEntries), int64(MaxSize))
 }
 
 func (me *MessageEntry) LoseLastOne() {

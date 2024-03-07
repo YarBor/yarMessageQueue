@@ -234,7 +234,7 @@ type RaftServer struct {
 
 func (rs *RaftServer) Serve() error {
 	if atomic.LoadInt32(&isRaftAddrSet) == 0 {
-		return errors.New(Err.ErrSourceNotExist)
+		return (Err.ErrSourceNotExist)
 	}
 	return rs.server.Serve(rs.listener)
 }
@@ -359,7 +359,7 @@ func (rs *RaftServer) RequestVote(_ context.Context, arg *pb.RequestVoteRequest)
 // url包含自己
 func (rs *RaftServer) RegisterRfNode(T, P string, Nodes_Url_IDs []struct{ ID, Url string }, ch CommandHandler, sh SnapshotHandler) (*RaftNode, error) {
 	if atomic.LoadInt32(&isRaftAddrSet) == 0 {
-		return nil, errors.New(Err.ErrSourceNotExist)
+		return nil, (Err.ErrSourceNotExist)
 	}
 	if T == "" || P == "" {
 		return nil, errors.New(UnKnownTopicPartition)
@@ -386,7 +386,7 @@ func (rs *RaftServer) RegisterRfNode(T, P string, Nodes_Url_IDs []struct{ ID, Ur
 	}
 	if rn.me == -1 {
 		rn.CloseAllConn()
-		return nil, errors.New(Err.ErrRequestIllegal)
+		return nil, (Err.ErrRequestIllegal)
 	}
 	rs.mu.Lock()
 	_, ok := rs.rfs[T]
@@ -431,7 +431,7 @@ func MakeRaftServer() (*RaftServer, error) {
 
 func (rs *RaftServer) RegisterMetadataRaft(url_IDs []struct{ Url, ID string }, ch CommandHandler, sh SnapshotHandler) (*RaftNode, error) {
 	if atomic.LoadInt32(&isRaftAddrSet) == 0 {
-		return nil, errors.New(Err.ErrSourceNotExist)
+		return nil, (Err.ErrSourceNotExist)
 	}
 	T, P := "", ""
 	rn := RaftNode{
@@ -459,7 +459,7 @@ func (rs *RaftServer) RegisterMetadataRaft(url_IDs []struct{ Url, ID string }, c
 	}
 	if rn.me == -1 {
 		rn.CloseAllConn()
-		return nil, errors.New(Err.ErrRequestIllegal)
+		return nil, (Err.ErrRequestIllegal)
 	}
 	rs.mu.Lock()
 	_, ok := rs.rfs[T]
@@ -469,7 +469,7 @@ func (rs *RaftServer) RegisterMetadataRaft(url_IDs []struct{ Url, ID string }, c
 	rs.rfs[T][P] = &rn
 	rs.mu.Unlock()
 	if ok {
-		return nil, errors.New(Err.ErrSourceAlreadyExist)
+		return nil, (Err.ErrSourceAlreadyExist)
 	}
 	rs.metadataRaft = &rn
 	return &rn, nil

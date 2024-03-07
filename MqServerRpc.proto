@@ -133,10 +133,11 @@ message CheckSourceTermResponse {
   }
   message PartsData {
     message Parts {
-      Partition FcParts = 3;
+      Partition Part = 3;
       optional string ConsumerID = 1;
       optional int32 ConsumerTimeoutSession = 11;
       optional int32 ConsumerMaxReturnMessageSize = 12;
+      optional int32 ConsumerMaxReturnMessageEntries = 10;
     }
     repeated Parts FcParts = 3;
     optional IDs FollowerProducerIDs = 2;
@@ -229,6 +230,7 @@ message Response {
     Failure = 1;
     NotServe = 9;
     ErrTimeout = 8;
+    ErrNeedToWait = 10;
     ErrNotLeader = 7;
     ErrSourceNotExist = 2;
     ErrSourceAlreadyExist = 6;
@@ -241,6 +243,7 @@ message Response {
 
 message RegisterConsumerRequest {
   int32 MaxReturnMessageSize = 3;
+  int32 MaxReturnMessageEntries = 1;
   int32 timeoutSessionMsec = 4;
 }
 
@@ -257,7 +260,7 @@ message TpData {
 
 message Partition {
   string Topic = 1;
-  string Part = 2;
+  string PartName = 2;
   repeated BrokerData Brokers = 3;
 }
 
@@ -317,24 +320,32 @@ message UnRegisterProducerRequest {Credentials credential = 1;}
 
 message UnRegisterProducerResponse {Response response = 1;}
 
-message Message {bytes Message = 1;}
+message Message {repeated bytes Message = 1;}
 
 message PushMessageRequest {
   Credentials credential = 1;
   string topic = 4;
   string part = 5;
-  repeated Message Msgs = 2;
+  Message Msgs = 2;
   int32 TopicTerm = 3;
 }
 
 message PushMessageResponse {Response response = 1;}
 
 message PullMessageRequest {
-  MQHeartBeatData ack = 1;
-  int32 WindowSize = 2;
+  Credentials Group = 1;
+  Credentials Self = 3;
+  int32 GroupTerm = 6;
+  int64 LastTimeOffset = 7;
+//  int32 WindowSize = 2;
+  string Topic = 4;
+  string Part = 5;
 }
 
 message PullMessageResponse {
   Response response = 1;
-  repeated Message Msgs = 2;
+  uint64 MessageOffset = 3;
+  Message Msgs = 2;
+  // Use when ConsumerChange [commit Last] Or PartDel
+  bool IsCouldToDel = 6;
 }
