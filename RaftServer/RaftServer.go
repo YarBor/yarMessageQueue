@@ -95,6 +95,9 @@ type RaftNode struct {
 }
 
 func (rn *RaftNode) IsLeader() bool {
+	if rn.rf == nil || rn.Peers == nil || len(rn.Peers) <= 1 {
+		return true
+	}
 	return rn.rf.IsLeader()
 }
 
@@ -357,7 +360,7 @@ func (rs *RaftServer) RequestVote(_ context.Context, arg *pb.RequestVoteRequest)
 }
 
 // url包含自己
-func (rs *RaftServer) RegisterRfNode(T, P string, Nodes_Url_IDs []struct{ ID, Url string }, ch CommandHandler, sh SnapshotHandler) (*RaftNode, error) {
+func (rs *RaftServer) RegisterRfNode(T, P string, ch CommandHandler, sh SnapshotHandler, peers ...struct{ ID, Url string }) (*RaftNode, error) {
 	if atomic.LoadInt32(&isRaftAddrSet) == 0 {
 		return nil, (Err.ErrSourceNotExist)
 	}
@@ -368,7 +371,7 @@ func (rs *RaftServer) RegisterRfNode(T, P string, Nodes_Url_IDs []struct{ ID, Ur
 		rf:              nil,
 		T:               T,
 		P:               P,
-		Peers:           make([]*ClientEnd, len(Nodes_Url_IDs)),
+		Peers:           make([]*ClientEnd, len(peers)),
 		me:              0,
 		ch:              make(chan ApplyMsg),
 		Persistent:      Persister.MakePersister(),
@@ -376,7 +379,7 @@ func (rs *RaftServer) RegisterRfNode(T, P string, Nodes_Url_IDs []struct{ ID, Ur
 		CommandHandler:  ch,
 		SnapshotHandler: sh,
 	}
-	for i, n := range Nodes_Url_IDs {
+	for i, n := range peers {
 		if n.Url == RaftServerUrl {
 			rn.me = i
 		} else {
@@ -386,7 +389,7 @@ func (rs *RaftServer) RegisterRfNode(T, P string, Nodes_Url_IDs []struct{ ID, Ur
 	}
 	if rn.me == -1 {
 		rn.CloseAllConn()
-		return nil, (Err.ErrRequestIllegal)
+		return nil, Err.ErrRequestIllegal
 	}
 	rs.mu.Lock()
 	_, ok := rs.rfs[T]

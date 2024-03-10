@@ -1,148 +1,12 @@
 package MessageMem
 
 import (
-	"sync"
+	"MqServer/RaftServer/Pack"
+	"bytes"
 	"sync/atomic"
 )
 
 var blockEntryNums = 16
-
-type Block struct {
-	mu   sync.RWMutex
-	Data [][]byte
-	Nums int64
-	Size int64
-}
-
-func newBlock() *Block {
-	return &Block{
-		Data: make([][]byte, 0, blockEntryNums),
-		Nums: 0,
-		Size: 0,
-	}
-}
-
-type EntryBlocks struct {
-	mu           sync.RWMutex
-	Ens          []*Block
-	BeginOffset  int64
-	EntryMaxSize int64 // max size of all entries
-}
-
-// Safe
-func (ebs *EntryBlocks) LoseEarliestBlock() *Block {
-	ebs.mu.Lock()
-	defer ebs.mu.Unlock()
-	if len(ebs.Ens) <= 1 {
-		return nil
-	} else {
-		tgt := append(make([]*Block, 0, len(ebs.Ens)-1), ebs.Ens[1:]...)
-		res := ebs.Ens[0]
-		ebs.BeginOffset += ebs.Ens[0].Nums
-		ebs.Ens = tgt
-		return res
-	}
-}
-
-func (b *Block) getSize() int64 {
-	return b.Size
-}
-
-func (b *Block) getNums() int64 {
-	return b.Nums
-}
-
-func (b *Block) write(entry []byte) {
-	b.Data = append(b.Data, entry)
-	b.Nums++
-	b.Size += int64(len(entry))
-}
-func (b *Block) read(needReadEntBegin, entNum int64) (
-	/*data*/ [][]byte /*readNum*/, int64 /*jumpNum*/, int64 /*ReadSize*/, int64) {
-	var res [][]byte
-	if needReadEntBegin > b.Nums {
-		return nil, 0, b.Nums, 0
-	} else {
-		if needReadEntBegin+entNum > b.Nums {
-			res = b.Data[needReadEntBegin-1:]
-		} else {
-			res = b.Data[needReadEntBegin-1 : needReadEntBegin+entNum]
-		}
-	}
-	Size := int64(0)
-	for _, re := range res {
-		Size += int64(len(re))
-	}
-	return res, int64(len(res)), 0, Size
-}
-
-func (ebs *EntryBlocks) GetMaxSize() int64 {
-	return ebs.EntryMaxSize
-}
-
-func (ebs *EntryBlocks) Write(entry []byte) {
-	ebs.mu.Lock()
-	last := ebs.Ens[len(ebs.Ens)-1]
-
-	last.mu.RLock()
-	size := last.getSize()
-	last.mu.RUnlock()
-
-	if size >= ebs.GetMaxSize() {
-		last = newBlock()
-		ebs.Ens = append(ebs.Ens, last)
-	}
-
-	last.mu.Lock()
-	last.write(entry)
-	last.mu.Unlock()
-	ebs.mu.Unlock()
-}
-
-func (ebs *EntryBlocks) read(EntryBegin, MaxEntries, MaxSize int64) ([][]byte, int64) {
-	res := make([][]byte, 0)
-	var readVal [][]byte
-	var readNum, jumpNum, ReadSize, ReadSizeAll int64
-	for i := 0; i < len(ebs.Ens); i++ {
-		ebs.Ens[i].mu.RLock()
-		readVal, readNum, jumpNum, ReadSize = ebs.Ens[i].read(EntryBegin, MaxEntries)
-		ebs.Ens[i].mu.RUnlock()
-		if jumpNum != 0 {
-			EntryBegin -= jumpNum
-		} else if MaxSize < ReadSizeAll {
-			break
-		} else {
-			ReadSizeAll += ReadSize
-			if readNum == MaxEntries {
-				res = readVal
-			} else if readNum > MaxEntries {
-				res = append(res, readVal[:MaxEntries]...)
-				break
-			} else {
-				res = append(res, readVal...)
-			}
-			if int64(len(res)) == MaxEntries {
-				break
-			}
-			MaxEntries -= readNum
-		}
-	}
-	return res, int64(len(res))
-}
-
-func (ebs *EntryBlocks) Read(offset, maxEntries, maxSize int64) (
-	res [][]byte, readEntriesNumb int64, NowOffset int64) {
-	ebs.mu.RLock()
-	defer ebs.mu.RUnlock()
-	if maxEntries <= 0 {
-		panic("EntryBlocks get negative number")
-	}
-	if offset < ebs.BeginOffset {
-		offset = ebs.BeginOffset
-	}
-	res, readEntriesNumb = ebs.read(offset, maxEntries, maxSize)
-	return res, readEntriesNumb, offset + readEntriesNumb
-}
 
 type MessageEntry struct {
 	En   EntryBlocks
@@ -151,21 +15,102 @@ type MessageEntry struct {
 	MaxEntries uint64
 	MaxSize    uint64
 
-	EntriesNow uint64
-	SizeNow    uint64
+	EntriesStorageNow uint64
+	SizeStorageNow    uint64
+}
+
+func (e *MessageEntry) LoseLastOne() {
+	defer atomic.StoreInt32(&e.mode, 0)
+
+	bk := e.En.LoseEarliestBlock()
+	if bk == nil {
+		return
+	}
+	atomic.AddUint64(&e.EntriesStorageNow, uint64(-1*bk.Nums))
+	atomic.AddUint64(&e.SizeStorageNow, uint64(-1*bk.Size))
+}
+
+func (m *MessageEntry) MakeSnapshot() []byte {
+	bf := bytes.NewBuffer(nil)
+	encode := Pack.NewEncoder(bf)
+	err := encode.Encode(atomic.LoadInt32(&m.mode))
+	if err != nil {
+		panic(err)
+	}
+	err = encode.Encode(atomic.LoadUint64(&m.MaxEntries))
+	if err != nil {
+		panic(err)
+	}
+	err = encode.Encode(atomic.LoadUint64(&m.MaxSize))
+	if err != nil {
+		panic(err)
+	}
+	err = encode.Encode(m.En.MakeSnapshot())
+	if err != nil {
+		panic(err)
+	}
+	err = encode.Encode(atomic.LoadUint64(&m.EntriesStorageNow))
+	if err != nil {
+		panic(err)
+	}
+	err = encode.Encode(atomic.LoadUint64(&m.SizeStorageNow))
+	if err != nil {
+		panic(err)
+	}
+	return bf.Bytes()
+}
+
+func (m *MessageEntry) LoadSnapshot(data []byte) {
+	bf := bytes.NewBuffer(data)
+	decode := Pack.NewDecoder(bf)
+
+	var mode int32
+	if err := decode.Decode(&mode); err != nil {
+		panic(err)
+	}
+	atomic.StoreInt32(&m.mode, mode)
+
+	var maxEntries uint64
+	if err := decode.Decode(&maxEntries); err != nil {
+		panic(err)
+	}
+	atomic.StoreUint64(&m.MaxEntries, maxEntries)
+
+	var maxSize uint64
+	if err := decode.Decode(&maxSize); err != nil {
+		panic(err)
+	}
+	atomic.StoreUint64(&m.MaxSize, maxSize)
+
+	var EnsData = []byte{}
+	if err := decode.Decode(&EnsData); err != nil {
+		panic(err)
+	}
+	m.En.LoadSnapshot(EnsData)
+
+	var entriesNow uint64
+	if err := decode.Decode(&entriesNow); err != nil {
+		panic(err)
+	}
+	atomic.StoreUint64(&m.EntriesStorageNow, entriesNow)
+
+	var sizeNow uint64
+	if err := decode.Decode(&sizeNow); err != nil {
+		panic(err)
+	}
+	atomic.StoreUint64(&m.SizeStorageNow, sizeNow)
 }
 
 func (m *MessageEntry) IsClearToDel(off int64) bool {
-	_, num := m.Read(off, 1, -1)
-	return num <= 0
+	//_, num := m.Read(off, 1, -1)
+	return m.En.EndOffset == off
 }
 
 func (me *MessageEntry) Write(bt []byte) {
 	me.En.Write(bt)
-	atomic.AddUint64(&me.EntriesNow, 1)
-	atomic.AddUint64(&me.SizeNow, uint64(len(bt)))
-
-	if atomic.LoadUint64(&me.EntriesNow) >= me.MaxEntries || atomic.LoadUint64(&me.SizeNow) >= me.MaxSize {
+	atomic.AddUint64(&me.EntriesStorageNow, 1)
+	atomic.AddUint64(&me.SizeStorageNow, uint64(len(bt)))
+	if atomic.LoadUint64(&me.EntriesStorageNow) >= me.MaxEntries || atomic.LoadUint64(&me.SizeStorageNow) >= me.MaxSize {
 		if atomic.CompareAndSwapInt32(&me.mode, 0, 1) {
 			go me.LoseLastOne()
 		}
@@ -177,56 +122,63 @@ var (
 	defaultMaxSize    = int32(1024 * 1024)
 )
 
-func (me *MessageEntry) Read(offset int64, MaxEntries, MaxSize int32) ([][]byte, int64) {
+// Read
+// Input Index, MaxEntries, MaxSize
+// Return( BeginOff Data ReadNum )
+func (me *MessageEntry) Read(Index int64, MaxEntries, MaxSize int32) (int64, [][]byte, int64) {
 	if MaxEntries <= 0 {
 		MaxEntries = defaultMaxEntries
 	}
 	if MaxSize <= 0 {
 		MaxSize = defaultMaxSize
 	}
-	return me.En.read(offset, int64(MaxEntries), int64(MaxSize))
+	return me.En.read(Index, int64(MaxEntries), int64(MaxSize))
 }
 
-func (me *MessageEntry) LoseLastOne() {
-	defer atomic.StoreInt32(&me.mode, 0)
-
-	bk := me.En.LoseEarliestBlock()
-	if bk == nil {
-		return
-	}
-	atomic.AddUint64(&me.EntriesNow, uint64(bk.Nums))
-	atomic.AddUint64(&me.SizeNow, uint64(bk.Size))
-}
-func NewMessageEntry(MaxEntries, MaxSize uint64) *MessageEntry {
+func NewMessageEntry(MaxEntries, MaxSize uint64, EntryMaxSizeOf_1Block int64) *MessageEntry {
 	return &MessageEntry{
 		En: EntryBlocks{
-			Ens:          append(make([]*Block, 0), newBlock()),
-			BeginOffset:  0,
-			EntryMaxSize: 0,
+			Ens:                   append(make([]*Block, 0), newBlock()),
+			BeginOffset:           0,
+			EntryMaxSizeOf_1Block: EntryMaxSizeOf_1Block,
 		},
-		mode:       0,
-		MaxEntries: MaxEntries,
-		MaxSize:    MaxSize,
-		EntriesNow: 0,
-		SizeNow:    0,
+		mode:              0,
+		MaxEntries:        MaxEntries,
+		MaxSize:           MaxSize,
+		EntriesStorageNow: 0,
+		SizeStorageNow:    0,
 	}
 }
 
-func (me *MessageEntry) Handle(command interface{}) error {
-	bt, ok := command.([]byte)
-	if !ok {
-		panic("Invalid MessageEntry command")
-	}
-	me.En.Write(bt)
-	return nil
-}
+//func (me *MessageEntry) Handle(command interface{}) error {
+//	bt, ok := command.([]byte)
+//	if !ok {
+//		panic("Invalid MessageEntry command")
+//	}
+//	me.En.Write(bt)
+//	return nil
+//}
 
 // TODO:
 
-func (me *MessageEntry) MakeSnapshot() []byte {
-	return nil
+func (me *MessageEntry) GetEndOffset() int64 {
+	me.En.mu.RLock()
+	defer me.En.mu.RUnlock()
+	return me.En.EndOffset
+}
+func (me *MessageEntry) GetBeginOffset() int64 {
+	me.En.mu.RLock()
+	defer me.En.mu.RUnlock()
+	return me.En.BeginOffset
 }
 
-func (me *MessageEntry) LoadSnapshot([]byte) {
-
-}
+//func (me *MessageEntry) MakeSnapshot() []byte {
+//	me.En.mu.RLock()
+//	defer me.En.mu.RUnlock()
+//
+//}
+//
+//func (me *MessageEntry) LoadSnapshot([]byte) {
+//	me.En.mu.Lock()
+//	defer me.En.mu.Unlock()
+//}

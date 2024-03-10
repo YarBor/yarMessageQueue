@@ -147,6 +147,7 @@ message CheckSourceTermResponse {
   int32 TopicTerm = 1;
   int32 GroupTerm = 2;
   optional PartsData ConsumersData = 16;
+  optional RegisterConsumerGroupRequest.PullOptionMode ConsumerGroupOption = 13;
   optional PartsData TopicData = 6;
 }
 
@@ -337,14 +338,14 @@ message PullMessageRequest {
   Credentials Self = 3;
   int32 GroupTerm = 6;
   int64 LastTimeOffset = 7;
-//  int32 WindowSize = 2;
+  //  int32 WindowSize = 2;
   string Topic = 4;
   string Part = 5;
 }
 
 message PullMessageResponse {
   Response response = 1;
-  uint64 MessageOffset = 3;
+  int64 MessageOffset = 3;
   Message Msgs = 2;
   // Use when ConsumerChange [commit Last] Or PartDel
   bool IsCouldToDel = 6;

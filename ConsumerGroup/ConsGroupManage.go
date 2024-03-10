@@ -2,10 +2,17 @@ package ConsumerGroup
 
 import (
 	"MqServer/Err"
+	"MqServer/RaftServer/Pack"
+	"bytes"
+	"io"
 	"sync"
 	"sync/atomic"
 	"time"
 )
+
+type LeaderCheck interface {
+	IsLeader() bool
+}
 
 type GroupsManager struct {
 	wg               sync.WaitGroup
@@ -13,8 +20,56 @@ type GroupsManager struct {
 	IsStop           bool
 	ID2ConsumerGroup map[string]*ConsumerGroup // CredId -- Index
 	SessionLogoutNotifier
+	LeaderCheck
 }
 
+func (gm *GroupsManager) MakeSnapshot() []byte {
+	bf := bytes.NewBuffer(nil)
+	encoder := Pack.NewEncoder(bf)
+	gm.mu.RLock()
+	defer gm.mu.RUnlock()
+	if err := encoder.Encode(gm.IsStop); err != nil {
+		panic(err)
+	}
+	for _, group := range gm.ID2ConsumerGroup {
+		if err := encoder.Encode(group.MakeSnapshot()); err != nil {
+			panic(err)
+		}
+	}
+	return bf.Bytes()
+}
+
+func (gm *GroupsManager) LoadSnapshot(bt []byte) {
+	gm.mu.Lock()
+	defer gm.mu.RUnlock()
+	decoder := Pack.NewDecoder(bytes.NewBuffer(bt))
+	err := decoder.Decode(&gm.IsStop)
+	if err != nil {
+		panic(err)
+	}
+	gm.ID2ConsumerGroup = make(map[string]*ConsumerGroup)
+	for {
+		var bts []byte
+		err = decoder.Decode(&bts)
+		if err != nil {
+			if err == io.EOF {
+				break
+			} else {
+				panic(err)
+			}
+		}
+		i, g := SnapShotToConsumerGroup(bts)
+		gm.ID2ConsumerGroup[i] = g
+	}
+}
+
+func (gm *GroupsManager) CorrespondPart2Del() {
+	gm.mu.RLock()
+	defer gm.mu.RUnlock()
+	for _, group := range gm.ID2ConsumerGroup {
+		_ = group.ChangeState(ConsumerGroupToDel)
+	}
+}
 func (gm *GroupsManager) IsNoGroupExist() bool {
 	gm.mu.RLock()
 	defer gm.mu.RUnlock()
@@ -26,12 +81,16 @@ func (gm *GroupsManager) DelGroup(ID string) {
 	defer gm.mu.Unlock()
 	delete(gm.ID2ConsumerGroup, ID)
 }
-func NewGroupsManager(sessionLogoutNotifier SessionLogoutNotifier) *GroupsManager {
-	return &GroupsManager{
+func NewGroupsManager(sessionLogoutNotifier SessionLogoutNotifier, check LeaderCheck) *GroupsManager {
+	group := &GroupsManager{
 		IsStop:                false,
 		ID2ConsumerGroup:      make(map[string]*ConsumerGroup),
 		SessionLogoutNotifier: sessionLogoutNotifier,
+		LeaderCheck:           check,
 	}
+	group.wg.Add(1)
+	go group.HeartbeatCheck()
+	return group
 }
 
 func (cg *ConsumerGroup) CheckLastTimeCommit(lastTimeCommitIndex int64) (*[][]byte, error) {
@@ -63,6 +122,70 @@ type ConsumerGroup struct {
 	LastConsumeData       *[][]byte
 }
 
+func (cg *ConsumerGroup) MakeSnapshot() []byte {
+	bf := bytes.NewBuffer(nil)
+	encoder := Pack.NewEncoder(bf)
+
+	cg.mu.RLock()
+	defer cg.mu.RUnlock()
+
+	if err := encoder.Encode(cg.Mode); err != nil {
+		panic(err)
+	}
+	if err := encoder.Encode(cg.GroupId); err != nil {
+		panic(err)
+	}
+	if err := encoder.Encode(cg.GroupTerm); err != nil {
+		panic(err)
+	}
+	if err := encoder.Encode(cg.Consumers); err != nil {
+		panic(err)
+	}
+	if err := encoder.Encode(cg.WaitingConsumers); err != nil {
+		panic(err)
+	}
+	if err := encoder.Encode(cg.ConsumeOffset); err != nil {
+		panic(err)
+	}
+	if err := encoder.Encode(cg.ConsumeOffsetLastTime); err != nil {
+		panic(err)
+	}
+	if err := encoder.Encode(cg.LastConsumeData); err != nil {
+		panic(err)
+	}
+	return bf.Bytes()
+}
+
+func SnapShotToConsumerGroup(snapshot []byte) (string, *ConsumerGroup) {
+	cgNew := &ConsumerGroup{}
+	decoder := Pack.NewDecoder(bytes.NewBuffer(snapshot))
+	var err error
+	if err = decoder.Decode(&cgNew.Mode); err != nil {
+		panic(err)
+	}
+	if err = decoder.Decode(&cgNew.GroupId); err != nil {
+		panic(err)
+	}
+	if err = decoder.Decode(&cgNew.GroupTerm); err != nil {
+		panic(err)
+	}
+	if err = decoder.Decode(&cgNew.Consumers); err != nil {
+		panic(err)
+	}
+	if err = decoder.Decode(&cgNew.WaitingConsumers); err != nil {
+		panic(err)
+	}
+	if err = decoder.Decode(&cgNew.ConsumeOffset); err != nil {
+		panic(err)
+	}
+	if err = decoder.Decode(&cgNew.ConsumeOffsetLastTime); err != nil {
+		panic(err)
+	}
+	if err = decoder.Decode(&cgNew.LastConsumeData); err != nil {
+		panic(err)
+	}
+	return cgNew.GroupId, cgNew
+}
 func (c *ConsumerGroup) CheckConsumer(consID string) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -201,11 +324,14 @@ func (cg *ConsumerGroup) ChangeConsumer(newConsID string) error {
 	}
 }
 
-func NewConsumerGroup(groupId string, maxReturnMessageSize int32) *ConsumerGroup {
+func NewConsumerGroup(groupId string, term int32, consumer *Consumer, consumeOff int64) *ConsumerGroup {
 	return &ConsumerGroup{
 		Mode:                  ConsumerGroupStart,
 		GroupId:               groupId,
-		Consumers:             nil,
+		GroupTerm:             term,
+		Consumers:             consumer,
+		WaitingConsumers:      nil,
+		ConsumeOffset:         consumeOff,
 		ConsumeOffsetLastTime: 0,
 		LastConsumeData:       nil,
 	}
@@ -265,11 +391,16 @@ func (gm *GroupsManager) HeartbeatCheck() {
 		if gm.IsStop {
 			return
 		}
-		if !gm.mu.TryRLock() {
+		if gm.IsLeader() == false || !gm.mu.TryRLock() {
 			continue
 		} else {
 			now := time.Now().UnixMilli()
+			groups := make([]*ConsumerGroup, 0, len(gm.ID2ConsumerGroup))
 			for _, Group := range gm.ID2ConsumerGroup {
+				groups = append(groups, Group)
+			}
+			gm.mu.RUnlock()
+			for _, Group := range groups {
 				Group.mu.TryRLock()
 				Cons := Group.Consumers
 				Group.mu.RUnlock()
@@ -294,18 +425,17 @@ func (gm *GroupsManager) HeartbeatCheck() {
 				}
 			}
 		}
-		gm.mu.RUnlock()
 	}
 }
 
 func (gm *GroupsManager) UnregisterConsumerGroup(GroupId string) error {
 	if gm.IsStop {
-		return (Err.ErrSourceNotExist)
+		return Err.ErrSourceNotExist
 	}
 	gm.mu.Lock()
 	defer gm.mu.Unlock()
 	if _, ok := gm.ID2ConsumerGroup[GroupId]; ok {
-		return (Err.ErrSourceNotExist)
+		return Err.ErrSourceNotExist
 	} else {
 		delete(gm.ID2ConsumerGroup, GroupId)
 		return nil
@@ -314,7 +444,7 @@ func (gm *GroupsManager) UnregisterConsumerGroup(GroupId string) error {
 
 func (gm *GroupsManager) RegisterConsumerGroup(consumersGroup *ConsumerGroup) (*ConsumerGroup, error) {
 	if gm.IsStop {
-		return nil, (Err.ErrSourceNotExist)
+		return nil, Err.ErrSourceNotExist
 	}
 	gm.mu.Lock()
 	defer gm.mu.Unlock()
@@ -322,7 +452,7 @@ func (gm *GroupsManager) RegisterConsumerGroup(consumersGroup *ConsumerGroup) (*
 		gm.ID2ConsumerGroup[consumersGroup.GroupId] = consumersGroup
 		return consumersGroup, nil
 	} else {
-		return nil, (Err.ErrSourceAlreadyExist)
+		return nil, Err.ErrSourceAlreadyExist
 	}
 }
 

@@ -128,6 +128,10 @@ type MetaDataController struct {
 	MD           *MetaData
 }
 
+func (c *MetaDataController) Stop() {
+	c.mu.Lock()
+	c.MetaDataRaft.Stop()
+}
 func NewMetaDataController(node *RaftServer.RaftNode) *MetaDataController {
 	return &MetaDataController{
 		MetaDataRaft: node,
@@ -1957,6 +1961,7 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 					ConsumerID: req.ConsumerData.ConsumerId,
 				})
 			}
+			i.ConsumerGroupOption = &group.Mode
 			group.mu.RUnlock()
 			return i
 		}
@@ -2068,6 +2073,7 @@ func (mdc *MetaDataController) CheckSourceTerm(req *pb.CheckSourceTermRequest) *
 						})
 					}
 				}
+				i.ConsumerGroupOption = &group.Mode
 				group.mu.RUnlock()
 			}
 		}
