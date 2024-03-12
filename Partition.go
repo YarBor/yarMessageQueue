@@ -25,21 +25,113 @@ type Partition struct {
 	MessageEntry         *MessageMem.MessageEntry
 }
 
-var defaultEntryMaxSizeOf_1Block = int64(10)
+var defaultEntryMaxSizeOf_1Block = int64(1e3)
 
-var (
-	PartitionCommand_Write      = "w"
-	PartitionCommand_ModeChange = "c"
-	PartitionCommand_Read       = "r"
+const (
+	PartitionCommand_Write = "w"
+	PartitionCommand_ToDel = "t"
+	PartitionCommand_Read  = "r"
+	//PartitionCommand_PartUpdate  = "p" // TODO Think:Should Do this in clusters ?
+	PartitionCommand_GroupUpdate = "g"
 )
+
+func (p *Partition) Handle(i interface{}) (error, interface{}) {
+	cmd := i.(PartitionCommand)
+	switch cmd.Mode {
+	case PartitionCommand_ToDel:
+		err := p.partToDel()
+		return err, nil
+	case PartitionCommand_Write:
+		data := cmd.Data.([][]byte)
+		err := p.write(data)
+		return err, nil
+	case PartitionCommand_GroupUpdate:
+		data := cmd.Data.(struct {
+			Gid  string
+			Cons *ConsumerGroup.Consumer
+		})
+		err := p.updateGroupConsumer(data.Gid, data.Cons)
+		return err, nil
+	//case PartitionCommand_ModeChange:
+	case PartitionCommand_Read:
+		data := cmd.Data.(struct {
+			ConsId, ConsGid string
+			CommitIndex     int64
+			ReadEntryNum    int32
+		})
+		Data, ReadBeginOffset, ReadEntriesNum, IsAllow2Del, err := p.read(data.ConsId, data.ConsGid, data.CommitIndex, data.ReadEntryNum)
+		if err != nil {
+			return err, nil
+		}
+		return nil, struct {
+			Data            [][]byte
+			ReadBeginOffset int64
+			ReadEntriesNum  int64
+			IsAllow2Del     bool
+			err             error
+		}{Data, ReadBeginOffset, ReadEntriesNum, IsAllow2Del, nil}
+	default:
+		panic("unknown command")
+	}
+}
+func (p *Partition) partToDel() error {
+	p.ChangeModeToDel()
+	return nil
+}
+
+func (p *Partition) PartToDel() error {
+	err, _ := p.commit(PartitionCommand_ToDel, nil)
+	return err
+}
+func (p *Partition) write(data [][]byte) error {
+	for _, datum := range data {
+		p.MessageEntry.Write(datum)
+	}
+	return nil
+}
+
+func (p *Partition) Write(data [][]byte) error {
+	err, _ := p.commit(PartitionCommand_Write, data)
+	return err
+}
+
+type PartitionCommand struct {
+	Mode string
+	Data interface{}
+}
+
+func (p *Partition) updateGroupConsumer(gid string, cons *ConsumerGroup.Consumer) error {
+	g, err := p.ConsumerGroupManager.GetConsumerGroup(gid)
+	if err != nil {
+		return err
+	}
+	return g.SetWaitConsumer(cons)
+}
+
+func (p *Partition) UpdateGroupConsumer(gid string, cons *ConsumerGroup.Consumer) (err error) {
+	err, _ = p.commit(PartitionCommand_GroupUpdate, struct {
+		Gid  string
+		Cons *ConsumerGroup.Consumer
+	}{gid, cons})
+	return
+}
+func (p *Partition) GetAllConsumerGroup() []*ConsumerGroup.ConsumerGroup {
+	return p.ConsumerGroupManager.GetAllGroup()
+}
+
+func (p *Partition) commit(cmd string, data interface{}) (error, interface{}) {
+	if p.IsLeader() == false {
+		return Err.ErrRequestNotLeader, nil
+	}
+	return p.Node.Commit(
+		PartitionCommand{
+			Mode: cmd,
+			Data: data,
+		})
+}
 
 func (p *Partition) IsLeader() bool {
 	return p.Node.IsLeader()
-}
-
-func (p *Partition) Handle(i interface{}) (error, interface{}) {
-	//TODO implement me
-	panic("implement me")
 }
 
 func (p *Partition) MakeSnapshot() []byte {
@@ -82,6 +174,7 @@ func (p *Partition) LoadSnapshot(data []byte) {
 }
 
 type PartitionsController struct {
+	rfServer          *RaftServer.RaftServer
 	ttMu              sync.RWMutex
 	TopicTerm         map[string]*int32
 	cgtMu             sync.RWMutex
@@ -91,6 +184,17 @@ type PartitionsController struct {
 	handleTimeout     ConsumerGroup.SessionLogoutNotifier
 }
 
+func (c *PartitionsController) GetAllPart() []*Partition {
+	c.partsMu.RLock()
+	defer c.partsMu.RUnlock()
+	data := []*Partition{}
+	for _, m := range c.P {
+		for _, partition := range *m {
+			data = append(data, partition)
+		}
+	}
+	return data
+}
 func (c *PartitionsController) Stop() {
 	c.ttMu.Lock()
 	c.cgtMu.Lock()
@@ -112,6 +216,7 @@ func (p *PartitionsController) GetTopicTerm(id string) (int32, error) {
 		return -1, (Err.ErrSourceNotExist)
 	}
 }
+
 func (p *PartitionsController) GetConsumerGroupTerm(id string) (int32, error) {
 	p.cgtMu.RLock()
 	defer p.cgtMu.RUnlock()
@@ -127,6 +232,7 @@ func (p *Partition) Stop() {
 	p.ConsumerGroupManager.Stop()
 }
 
+// ChangeModeToDel TODO : Commit Handle
 func (p *Partition) ChangeModeToDel() {
 	atomic.StoreInt32(&p.Mode, Partition_Mode_ToDel)
 	p.ConsumerGroupManager.CorrespondPart2Del()
@@ -161,24 +267,49 @@ func newPartition(t, p string,
 	return part, nil
 }
 
-func (p *Partition) registerConsumerGroup(groupId string, term int32, consumer *ConsumerGroup.Consumer, consumeOff int64) (*ConsumerGroup.ConsumerGroup, error) {
+// TODO : Commit-Handle
+func (p *Partition) registerConsumerGroup(groupId string, consumer *ConsumerGroup.Consumer, consumeOff int64) (*ConsumerGroup.ConsumerGroup, error) {
 	if atomic.LoadInt32(&p.Mode) == Partition_Mode_ToDel {
 		return nil, Err.ErrSourceNotExist
 	}
-	return p.ConsumerGroupManager.RegisterConsumerGroup(ConsumerGroup.NewConsumerGroup(groupId, term, consumer, consumeOff))
+	return p.ConsumerGroupManager.RegisterConsumerGroup(ConsumerGroup.NewConsumerGroup(groupId, consumer, consumeOff))
 }
 
-func NewPartitionsController(handleTimeout ConsumerGroup.SessionLogoutNotifier) *PartitionsController {
+func NewPartitionsController(rf *RaftServer.RaftServer, handleTimeout ConsumerGroup.SessionLogoutNotifier) *PartitionsController {
 	return &PartitionsController{
-		P:             make(map[string]*map[string]*Partition),
-		handleTimeout: handleTimeout,
+		rfServer:          rf,
+		ttMu:              sync.RWMutex{},
+		TopicTerm:         make(map[string]*int32),
+		cgtMu:             sync.RWMutex{},
+		ConsumerGroupTerm: make(map[string]*int32),
+		partsMu:           sync.RWMutex{},
+		P:                 make(map[string]*map[string]*Partition),
+		handleTimeout:     handleTimeout,
 	}
+}
+func (part *Partition) Read(consId, ConsGid string, CommitIndex int64, ReadEntryNum int32) ([][]byte, int64, int64, bool, error) {
+	err, data := part.commit(PartitionCommand_Read, struct {
+		consId, ConsGid string
+		CommitIndex     int64
+		ReadEntryNum    int32
+	}{consId, ConsGid, CommitIndex, ReadEntryNum})
+	if err != nil {
+		return nil, 0, 0, false, err
+	}
+	res := data.(struct {
+		Data            [][]byte
+		ReadBeginOffset int64
+		ReadEntriesNum  int64
+		IsAllow2Del     bool
+		err             error
+	})
+	return res.Data, res.ReadBeginOffset, res.ReadEntriesNum, res.IsAllow2Del, res.err
 }
 
 // return: data , ReadBeginOffset ,readEntries Num, IsAllow to del , err
 // consider FirstTime , commitIndex == -1
 // TODO : ADD Field to save Offset Consumer consumed offset
-func (part *Partition) Read(consId, ConsGid string, CommitIndex int64) ([][]byte, int64, int64, bool, error) {
+func (part *Partition) read(consId, ConsGid string, CommitIndex int64, ReadEntryNum int32) ([][]byte, int64, int64, bool, error) {
 	g, err := part.ConsumerGroupManager.GetConsumerGroup(ConsGid)
 	if err != nil {
 		return nil, -1, -1, false, err
@@ -191,7 +322,8 @@ Begin:
 		if !g.CheckConsumer(consId) {
 			return nil, -1, -1, false, Err.ErrRequestIllegal
 		}
-		BeginOffset, data, ReadNum := part.MessageEntry.Read(g.GetConsumeOffset(), g.Consumers.MaxReturnMessageEntries, g.Consumers.MaxReturnMessageSize)
+		g.Consumers.TimeUpdate()
+		BeginOffset, data, ReadNum := part.MessageEntry.Read(g.GetConsumeOffset(), ReadEntryNum, g.Consumers.MaxReturnMessageSize)
 		err := g.SetLastTimeOffset_Data(BeginOffset, &data)
 		if err != nil {
 			panic(err)
@@ -206,9 +338,10 @@ Begin:
 		if !g.CheckConsumer(consId) {
 			return nil, -1, -1, false, Err.ErrRequestIllegal
 		}
+		g.Consumers.TimeUpdate()
 		success, LastData, off := g.Commit(CommitIndex)
 		if success {
-			BeginOffset, data, ReadNum := part.MessageEntry.Read(g.GetConsumeOffset(), g.Consumers.MaxReturnMessageEntries, g.Consumers.MaxReturnMessageSize)
+			BeginOffset, data, ReadNum := part.MessageEntry.Read(g.GetConsumeOffset(), ReadEntryNum, g.Consumers.MaxReturnMessageSize)
 			err := g.SetLastTimeOffset_Data(BeginOffset, &data)
 			if err != nil {
 				panic(err)
@@ -225,6 +358,7 @@ Begin:
 		if !g.CheckConsumer(consId) {
 			return nil, -1, -1, false, Err.ErrRequestIllegal
 		}
+		g.Consumers.TimeUpdate()
 		success, Lastdata, off := g.Commit(CommitIndex)
 		if success {
 			if part.MessageEntry.IsClearToDel(CommitIndex) {
@@ -232,7 +366,7 @@ Begin:
 				// Part-Check-Del In Other Part where Call Read
 				return nil, -1, -1, true, nil
 			} else {
-				BeginOffset, data, ReadNum := part.MessageEntry.Read(g.GetConsumeOffset(), g.Consumers.MaxReturnMessageEntries, g.Consumers.MaxReturnMessageSize)
+				BeginOffset, data, ReadNum := part.MessageEntry.Read(g.GetConsumeOffset(), ReadEntryNum, g.Consumers.MaxReturnMessageSize)
 				err := g.SetLastTimeOffset_Data(BeginOffset, &data)
 				if err != nil {
 					panic(err)
@@ -248,6 +382,7 @@ Begin:
 	case
 		ConsumerGroup.ConsumerGroupChangeAndWaitCommit:
 		if g.CheckConsumer(consId) {
+			g.Consumers.TimeUpdate()
 			Success, data, off := g.Commit(CommitIndex)
 			if Success {
 				err := g.ChangeState(ConsumerGroup.ConsumerGroupStart)
@@ -274,13 +409,13 @@ Begin:
 //一个是Part的回收，一个是心跳监测去call_Part状态改变
 
 func (pc *PartitionsController) CheckPartToDel(t, p string) {
-	part, err := pc.getPartition(t, p)
+	part, err := pc.GetPart(t, p)
 	if err != nil {
 		return
 	}
 	if part.CheckToDel() {
 		pc.partsMu.Lock()
-		(*pc.P[t])[p].ChangeModeToDel()
+		//(*pc.P[t])[p].ChangeModeToDel()
 		delete(*pc.P[t], p)
 		if len(*pc.P[t]) == 0 {
 			delete(pc.P, t)
@@ -289,7 +424,7 @@ func (pc *PartitionsController) CheckPartToDel(t, p string) {
 	}
 }
 
-func (pc *PartitionsController) getPartition(t, p string) (*Partition, error) {
+func (pc *PartitionsController) GetPart(t, p string) (*Partition, error) {
 	pc.partsMu.RLock()
 	parts, ok := pc.P[t]
 	pc.partsMu.RUnlock()
@@ -299,12 +434,11 @@ func (pc *PartitionsController) getPartition(t, p string) (*Partition, error) {
 			return part, nil
 		}
 	}
-	return nil, (Err.ErrSourceNotExist)
+	return nil, Err.ErrSourceNotExist
 }
 
 func (ptc *PartitionsController) RegisterPart(t, p string,
 	MaxEntries, MaxSize uint64,
-	server *RaftServer.RaftServer,
 	peers ...struct{ ID, Url string },
 ) (part *Partition, err error) {
 	ptc.partsMu.Lock()
@@ -322,26 +456,11 @@ func (ptc *PartitionsController) RegisterPart(t, p string,
 	}
 	part, ok = (*ptc.P[t])[p]
 	if !ok {
-		part, err = newPartition(t, p, MaxEntries, MaxSize, ptc.handleTimeout, server, peers...)
+		part, err = newPartition(t, p, MaxEntries, MaxSize, ptc.handleTimeout, ptc.rfServer, peers...)
 		if err != nil {
 			return nil, err
 		}
 		(*ptc.P[t])[p] = part
 	}
 	return part, nil
-}
-
-func (ptc *PartitionsController) GetPart(t, p string) (part *Partition) {
-	ptc.partsMu.Lock()
-	defer ptc.partsMu.Unlock()
-	ok := false
-	if _, ok = ptc.P[t]; ok {
-	} else {
-		return nil
-	}
-	part, ok = (*ptc.P[t])[p]
-	if !ok {
-		return nil
-	}
-	return part
 }

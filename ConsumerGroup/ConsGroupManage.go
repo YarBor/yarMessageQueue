@@ -23,6 +23,15 @@ type GroupsManager struct {
 	LeaderCheck
 }
 
+func (gm *GroupsManager) GetAllGroup() []*ConsumerGroup {
+	gm.mu.RLock()
+	defer gm.mu.RUnlock()
+	data := []*ConsumerGroup{}
+	for _, group := range gm.ID2ConsumerGroup {
+		data = append(data, group)
+	}
+	return data
+}
 func (gm *GroupsManager) MakeSnapshot() []byte {
 	bf := bytes.NewBuffer(nil)
 	encoder := Pack.NewEncoder(bf)
@@ -114,7 +123,6 @@ type ConsumerGroup struct {
 	Mode                  int32
 	mu                    sync.RWMutex
 	GroupId               string
-	GroupTerm             int32
 	Consumers             *Consumer
 	WaitingConsumers      *Consumer
 	ConsumeOffset         int64 //ConsumeLastTimeGetDataOffset
@@ -133,9 +141,6 @@ func (cg *ConsumerGroup) MakeSnapshot() []byte {
 		panic(err)
 	}
 	if err := encoder.Encode(cg.GroupId); err != nil {
-		panic(err)
-	}
-	if err := encoder.Encode(cg.GroupTerm); err != nil {
 		panic(err)
 	}
 	if err := encoder.Encode(cg.Consumers); err != nil {
@@ -164,9 +169,6 @@ func SnapShotToConsumerGroup(snapshot []byte) (string, *ConsumerGroup) {
 		panic(err)
 	}
 	if err = decoder.Decode(&cgNew.GroupId); err != nil {
-		panic(err)
-	}
-	if err = decoder.Decode(&cgNew.GroupTerm); err != nil {
 		panic(err)
 	}
 	if err = decoder.Decode(&cgNew.Consumers); err != nil {
@@ -294,6 +296,16 @@ func (cg *ConsumerGroup) ChangeState(state int) error {
 	}
 	return nil
 }
+func (cg *ConsumerGroup) SetWaitConsumer(cons *Consumer) error {
+	err := cg.ChangeState(ConsumerGroupChangeAndWaitCommit)
+	if err != nil {
+		return err
+	}
+	cg.mu.Lock()
+	cg.WaitingConsumers = cons
+	cg.mu.Unlock()
+	return nil
+}
 
 // TODO : Part of Change Mode to ChangeWait...
 func (cg *ConsumerGroup) ChangeConsumer(newConsID string) error {
@@ -324,11 +336,10 @@ func (cg *ConsumerGroup) ChangeConsumer(newConsID string) error {
 	}
 }
 
-func NewConsumerGroup(groupId string, term int32, consumer *Consumer, consumeOff int64) *ConsumerGroup {
+func NewConsumerGroup(groupId string, consumer *Consumer, consumeOff int64) *ConsumerGroup {
 	return &ConsumerGroup{
 		Mode:                  ConsumerGroupStart,
 		GroupId:               groupId,
-		GroupTerm:             term,
 		Consumers:             consumer,
 		WaitingConsumers:      nil,
 		ConsumeOffset:         consumeOff,

@@ -1083,6 +1083,15 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 			}
 			topic.mu.RUnlock()
 			mdc.MD.tpMu.Unlock()
+			for _, part := range topic.Part.Parts {
+				for _, member := range part.BrokerGroup.Members {
+					mdc.MD.bkMu.RLock()
+					if bk, ok := mdc.MD.Brokers[member.ID]; ok {
+						atomic.AddUint32(&bk.PartitionNum, -1)
+					}
+					mdc.MD.bkMu.RUnlock()
+				}
+			}
 		}
 
 		group.mu.Lock()
@@ -1174,15 +1183,17 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 
 		ok = false
 		t.mu.Lock()
-
+		var RemovePart_ *PartitionMD
 		for i, part := range t.Part.Parts {
 			if part.Part == data.Part {
 				ok = true
+				RemovePart_ = t.Part.Parts[i]
 				t.Part.Parts = append(t.Part.Parts[:i], t.Part.Parts[i+1:]...)
+				break
 			}
 		}
 		if !ok {
-			err = (Err.ErrSourceNotExist)
+			err = Err.ErrSourceNotExist
 			goto RemoveFalse
 		}
 		t.Part.Term, err = mdc.MD.addTpTerm(t.Name)
@@ -1191,6 +1202,11 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 		}
 		needReBalance := append(make([]string, 0, len(t.FollowerGroupID)), t.FollowerGroupID...)
 
+		if t.IsClear() {
+			mdc.MD.tpMu.Lock()
+			delete(mdc.MD.Topics, t.Name)
+			mdc.MD.tpMu.Unlock()
+		}
 	RemoveFalse:
 		t.mu.Unlock()
 		if err != nil {
@@ -1207,10 +1223,19 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 			}
 		}
 		mdc.MD.cgMu.RUnlock()
+
+		for _, member := range RemovePart_.BrokerGroup.Members {
+			mdc.MD.bkMu.RLock()
+			if bk, ok := mdc.MD.Brokers[member.ID]; ok {
+				atomic.AddUint32(&bk.PartitionNum, -1)
+			}
+			mdc.MD.bkMu.RUnlock()
+		}
 	}
 
 	return err, retData
 }
+
 func (psmd *PartitionSmD) Copy() *PartitionSmD {
 	a := PartitionSmD{
 		Term:  psmd.Term,

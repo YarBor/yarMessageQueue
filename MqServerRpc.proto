@@ -186,9 +186,8 @@ message JoinConsumerGroupResponse {
 
 message RegisterConsumerGroupRequest {
   enum PullOptionMode {
-    unSet = 0;
+    Latest = 0;
     Earliest = 3;
-    Latest = 1;
   }
   PullOptionMode PullOption = 2;
   optional string GroupId = 3;
@@ -338,11 +337,12 @@ message PullMessageRequest {
   Credentials Self = 3;
   int32 GroupTerm = 6;
   int64 LastTimeOffset = 7;
+  int32 ReadEntryNum = 8; // could == 0
   //  int32 WindowSize = 2;
   string Topic = 4;
   string Part = 5;
 }
-
+// to keep consumer alive
 message PullMessageResponse {
   Response response = 1;
   int64 MessageOffset = 3;
