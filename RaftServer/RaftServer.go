@@ -32,10 +32,9 @@ const (
 )
 
 var (
-	// for option set
-	RaftServerID        = ""
-	RaftServerUrl       = ""
-	isRaftAddrSet int32 = 0
+// for option set
+// RaftServerID        = ""
+// RaftServerUrl       = ""
 )
 
 type syncIdMap struct {
@@ -227,18 +226,29 @@ func (rn *RaftNode) Start() {
 
 type RaftServer struct {
 	pb.UnimplementedRaftCallServer
-	mu           sync.RWMutex
-	server       *grpc.Server
-	listener     net.Listener
-	Addr         string
-	metadataRaft *RaftNode
-	rfs          map[string]map[string]*RaftNode
+	mu            sync.RWMutex
+	server        *grpc.Server
+	listener      net.Listener
+	isRaftAddrSet int32
+	ID            string
+	Url           string
+	metadataRaft  *RaftNode
+	rfs           map[string]map[string]*RaftNode
 }
 
 func (rs *RaftServer) Serve() error {
-	if atomic.LoadInt32(&isRaftAddrSet) == 0 {
-		return (Err.ErrSourceNotExist)
+	if atomic.LoadInt32(&rs.isRaftAddrSet) == 0 {
+		return Err.ErrSourceNotExist
 	}
+	lis, err := net.Listen("tcp", rs.Url)
+	if err != nil {
+		return err
+	}
+	rs.listener = lis
+	s := grpc.NewServer()
+	rs.server = s
+	pb.RegisterRaftCallServer(s, rs)
+
 	return rs.server.Serve(rs.listener)
 }
 func (rs *RaftServer) HeartBeat(_ context.Context, arg *pb.HeartBeatRequest) (rpl *pb.HeartBeatResponse, err error) {
@@ -361,7 +371,7 @@ func (rs *RaftServer) RequestVote(_ context.Context, arg *pb.RequestVoteRequest)
 
 // url包含自己
 func (rs *RaftServer) RegisterRfNode(T, P string, ch CommandHandler, sh SnapshotHandler, peers ...struct{ ID, Url string }) (*RaftNode, error) {
-	if atomic.LoadInt32(&isRaftAddrSet) == 0 {
+	if atomic.LoadInt32(&rs.isRaftAddrSet) == 0 {
 		return nil, (Err.ErrSourceNotExist)
 	}
 	if T == "" || P == "" {
@@ -380,7 +390,7 @@ func (rs *RaftServer) RegisterRfNode(T, P string, ch CommandHandler, sh Snapshot
 		SnapshotHandler: sh,
 	}
 	for i, n := range peers {
-		if n.Url == RaftServerUrl {
+		if n.Url == rs.Url {
 			rn.me = i
 		} else {
 			peer, _ := rn.LinkPeerRpcServer(n.Url, n.ID)
@@ -402,38 +412,25 @@ func (rs *RaftServer) RegisterRfNode(T, P string, ch CommandHandler, sh Snapshot
 	return &rn, nil
 }
 
-func SetRaftServerInfo(ID, Url string) bool {
-	if ok := atomic.CompareAndSwapInt32(&isRaftAddrSet, 0, 1); ok {
-		RaftServerID = ID
-		RaftServerUrl = Url
-		return true
-	}
-	return false
+func (rs *RaftServer) SetRaftServerInfo(ID, Url string) bool {
+	atomic.StoreInt32(&rs.isRaftAddrSet, 1)
+	rs.ID = ID
+	rs.Url = Url
+	return true
 }
 
 func MakeRaftServer() (*RaftServer, error) {
-	if RaftServerUrl == "" {
-		return nil, errors.New("RaftListenAddr must be set")
-	}
-	lis, err := net.Listen("tcp", RaftServerUrl)
-	if err != nil {
-		mqLog.FATAL(err)
-	}
-	s := grpc.NewServer()
 	res := &RaftServer{
 		UnimplementedRaftCallServer: pb.UnimplementedRaftCallServer{},
 		mu:                          sync.RWMutex{},
-		server:                      s,
-		listener:                    lis,
-		Addr:                        RaftServerUrl,
+		metadataRaft:                nil,
 		rfs:                         make(map[string]map[string]*RaftNode),
 	}
-	pb.RegisterRaftCallServer(s, res)
 	return res, nil
 }
 
 func (rs *RaftServer) RegisterMetadataRaft(url_IDs []struct{ Url, ID string }, ch CommandHandler, sh SnapshotHandler) (*RaftNode, error) {
-	if atomic.LoadInt32(&isRaftAddrSet) == 0 {
+	if atomic.LoadInt32(&rs.isRaftAddrSet) == 0 {
 		return nil, (Err.ErrSourceNotExist)
 	}
 	T, P := "", ""
@@ -451,7 +448,7 @@ func (rs *RaftServer) RegisterMetadataRaft(url_IDs []struct{ Url, ID string }, c
 		SnapshotHandler: sh,
 	}
 	for i, n := range url_IDs {
-		if n.Url == RaftServerUrl {
+		if n.Url == rs.Url {
 			rn.me = i
 			continue
 		} else {
