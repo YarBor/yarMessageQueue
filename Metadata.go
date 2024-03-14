@@ -497,7 +497,7 @@ func ErrToResponse(err error) *api.Response {
 
 type MetadataCommand struct {
 	Mode string
-	data interface{}
+	Data interface{}
 }
 
 func (mdc *MetaDataController) IsLeader() bool {
@@ -660,17 +660,37 @@ func (mdc *MetaDataController) RegisterProducer(request *api.RegisterProducerReq
 
 }
 
-func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) {
+func (mdc *MetaDataController) Handle(command interface{}) (err error, retData interface{}) {
 	mdc.mu.RLock()
 	defer mdc.mu.RUnlock()
+
 	Log.DEBUG("handle command", command)
-	mdCommand := command.(MetadataCommand)
-	var err error = nil
-	var retData interface{} = nil
+	println(mdc.ToGetJson(), fmt.Sprintf("%v", command), err, fmt.Sprintf("%v", retData))
+	mdCommand, OK := command.(MetadataCommand)
+	if !OK {
+		mdCommand = MetadataCommand{
+			Mode: command.(map[string]interface{})["Mode"].(string),
+			Data: command.(map[string]interface{})["Data"],
+		}
+	}
+	ccommand, IsMap := mdCommand.Data.(map[string]interface{})
+	//var err error = nil
+	//var retData interface{} = nil
 	switch mdCommand.Mode {
 	case
 		RegisterConsumer:
-		p := mdCommand.data.(*ConsumerMD)
+		p, ok := mdCommand.Data.(*ConsumerMD)
+		if !ok && IsMap {
+			p = &ConsumerMD{
+				SelfId:               ccommand["SelfId"].(string),
+				GroupId:              ccommand["GroupId"].(string),
+				MaxReturnEntries:     ccommand["MaxReturnEntries"].(int32),
+				MaxReturnMessageSize: ccommand["MaxReturnMessageSize"].(int32),
+				TimeoutSessionMsec:   ccommand["TimeoutSessionMsec"].(int32),
+			}
+		} else {
+			panic(fmt.Sprintf("Ub"))
+		}
 		id := fmt.Sprint(mdc.MD.GetIncreaseID())
 		retData = id
 		p.SelfId = id
@@ -683,7 +703,14 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 		mdc.MD.cMu.Unlock()
 	case
 		RegisterProducer:
-		p := mdCommand.data.(ProducerMD)
+		p, ok1 := mdCommand.Data.(ProducerMD)
+		if !ok1 && IsMap {
+			p = ProducerMD{
+				SelfId:             ccommand["SelfId"].(string),
+				FocalTopic:         ccommand["FocalTopic"].(string),
+				MaxPushMessageSize: ccommand["MaxPushMessageSize"].(int32),
+			}
+		}
 		id := fmt.Sprint(mdc.MD.GetIncreaseID())
 		retData = id
 		p.SelfId = id
@@ -712,13 +739,31 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 
 	case
 		CreateTopic:
-		data := mdCommand.data.(*struct {
+		data, ok := mdCommand.Data.(*struct {
 			Name         string
 			RequestParts []struct {
 				PartitionName     string
 				ReplicationNumber int32
 			}
 		})
+		if !ok {
+			data = &struct {
+				Name         string
+				RequestParts []struct {
+					PartitionName     string
+					ReplicationNumber int32
+				}
+			}{Name: ccommand["Name"].(string)}
+			tPart := ccommand["RequestParts"].([]interface{})
+			for _, pt := range tPart {
+				p := pt.(map[string]interface{})
+				data.RequestParts = append(data.RequestParts, struct {
+					PartitionName     string
+					ReplicationNumber int32
+				}{p["PartitionName"].(string), p["ReplicationNumber"].(int32)})
+			}
+
+		}
 		mdc.MD.bkMu.RLock()
 		bkLen := len(mdc.MD.Brokers)
 		mdc.MD.bkMu.RUnlock()
@@ -772,8 +817,7 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 		mdc.MD.tpMu.Unlock()
 	case
 		UnRegisterConsumer:
-		ConId := mdCommand.data.(*string)
-
+		ConId := mdCommand.Data.(*string)
 		mdc.MD.cMu.Lock()
 		targetConsumer, ok := mdc.MD.Consumers[*ConId]
 		if !ok {
@@ -862,11 +906,16 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 
 	case
 		LeaveConsGroup:
-		data := mdCommand.data.(*struct {
+		data, ok2 := mdCommand.Data.(*struct {
 			GroupID string
 			SelfID  string
 		})
-
+		if !ok2 {
+			data = &struct {
+				GroupID string
+				SelfID  string
+			}{GroupID: ccommand["GroupID"].(string), SelfID: ccommand["SelfID"].(string)}
+		}
 		mdc.MD.cMu.Lock()
 		targetConsumer, ok := mdc.MD.Consumers[data.SelfID]
 		if !ok || targetConsumer.GroupId != data.GroupID {
@@ -954,7 +1003,7 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 		}
 	case
 		UnRegisterProducer:
-		ProID := mdCommand.data.(*string)
+		ProID := mdCommand.Data.(*string)
 		mdc.MD.pMu.Lock()
 		p, ok := mdc.MD.Producers[*ProID]
 		if !ok {
@@ -999,10 +1048,16 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 
 	case
 		RegisterConsGroup:
-		GroupData := mdCommand.data.(struct {
+		GroupData, ok2 := mdCommand.Data.(struct {
 			GroupID string
 			Mode    api.RegisterConsumerGroupRequest_PullOptionMode
 		})
+		if !ok2 {
+			GroupData = struct {
+				GroupID string
+				Mode    api.RegisterConsumerGroupRequest_PullOptionMode
+			}{GroupID: ccommand["GroupID"].(string), Mode: ccommand["GroupID"].(api.RegisterConsumerGroupRequest_PullOptionMode)}
+		}
 		mdc.MD.cgMu.Lock()
 		if _, ok := mdc.MD.ConsGroup[GroupData.GroupID]; ok {
 			err = (Err.ErrSourceAlreadyExist)
@@ -1038,11 +1093,16 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 			}
 			group *ConsumersGroupMD
 		)
-		data := mdCommand.data.(*struct {
+		data, ok1 := mdCommand.Data.(*struct {
 			GroupID string
 			SelfID  string
 		})
-
+		if !ok1 {
+			data = &struct {
+				GroupID string
+				SelfID  string
+			}{GroupID: ccommand["GroupID"].(string), SelfID: ccommand["SelfID"].(string)}
+		}
 		mdc.MD.cMu.RLock()
 		mdc.MD.cgMu.RLock()
 
@@ -1102,10 +1162,16 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 		mdc.MD.cMu.Unlock()
 	case
 		ConsGroupFocalTopic:
-		data := mdCommand.data.(*struct {
+		data, okTrans := mdCommand.Data.(*struct {
 			ConGiD string
 			Topic  string
 		})
+		if !okTrans {
+			data = &struct {
+				ConGiD string
+				Topic  string
+			}{ConGiD: ccommand["ConGiD"].(string), Topic: ccommand["Topic"].(string)}
+		}
 		mdc.MD.cgMu.RLock()
 		group, ok := mdc.MD.ConsGroup[data.ConGiD]
 		mdc.MD.cgMu.RUnlock()
@@ -1138,10 +1204,16 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 
 	case
 		ConsGroupUnFocalTopic:
-		data := mdCommand.data.(*struct {
+		data, okTran := mdCommand.Data.(*struct {
 			ConGiD string
 			Topic  string
 		})
+		if !okTran {
+			data = &struct {
+				ConGiD string
+				Topic  string
+			}{ConGiD: ccommand["ConGiD"].(string), Topic: ccommand["Topic"].(string)}
+		}
 		var (
 			i            int32 = 0
 			success            = false
@@ -1219,12 +1291,28 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 			err = (Err.ErrSourceNotExist)
 		}
 		group.mu.Unlock()
-	case AddPart:
-		data := mdCommand.data.(*struct {
+	case
+		AddPart:
+		data, okTrans := mdCommand.Data.(*struct {
 			Topic   string
 			Part    string
 			Brokers []*BrokerData
 		})
+		if !okTrans {
+			tBk := ccommand["Brokers"].([]interface{})
+			data = &struct {
+				Topic   string
+				Part    string
+				Brokers []*BrokerData
+			}{Topic: ccommand["Topic"].(string), Part: ccommand["Part"].(string), Brokers: make([]*BrokerData, 0, len(tBk))}
+			for _, tm := range tBk {
+				m := tm.(map[string]interface{})
+				data.Brokers = append(data.Brokers, &BrokerData{
+					ID:  m["ID"].(string),
+					Url: m["Url"].(string),
+				})
+			}
+		}
 		var (
 			needReBalance []string
 			t             *TopicMD
@@ -1291,10 +1379,16 @@ func (mdc *MetaDataController) Handle(command interface{}) (error, interface{}) 
 		mdc.MD.cgMu.RUnlock()
 	case
 		RemovePart:
-		data := mdCommand.data.(struct {
+		data, okTrans := mdCommand.Data.(struct {
 			Topic string
 			Part  string
 		})
+		if !okTrans {
+			data = struct {
+				Topic string
+				Part  string
+			}{Topic: ccommand["Topic"].(string), Part: ccommand["Part"].(string)}
+		}
 		//var
 		var needReBalance []string
 		mdc.MD.tpMu.RLock()
@@ -1474,7 +1568,7 @@ func (mdc *MetaDataController) commit(mode string, data interface{}) (error, int
 	err, p := mdc.MetaDataRaft.Commit(
 		MetadataCommand{
 			Mode: mode,
-			data: data,
+			Data: data,
 		})
 	return err, p
 }

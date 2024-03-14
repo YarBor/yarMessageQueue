@@ -36,29 +36,68 @@ const (
 )
 
 func (p *Partition) Handle(i interface{}) (error, interface{}) {
-	cmd := i.(PartitionCommand)
+	cmd, ok := i.(PartitionCommand)
+	if !ok {
+		cmd = PartitionCommand{
+			Mode: i.(map[string]interface{})["Mode"].(string),
+			Data: i.(map[string]interface{})["Data"],
+		}
+	}
 	switch cmd.Mode {
 	case PartitionCommand_ToDel:
 		err := p.partToDel()
 		return err, nil
 	case PartitionCommand_Write:
-		data := cmd.Data.([][]byte)
+		data, ok1 := cmd.Data.([][]byte)
+		if !ok1 {
+			td := cmd.Data.([]interface{})
+			data = make([][]byte, 0)
+			for _, i3 := range td {
+				data = append(data, i3.([]byte))
+			}
+		}
 		err := p.write(data)
 		return err, nil
 	case PartitionCommand_GroupUpdate:
-		data := cmd.Data.(struct {
+		data, ok1 := cmd.Data.(struct {
 			Gid  string
 			Cons *ConsumerGroup.Consumer
 		})
+		if !ok1 {
+			data = struct {
+				Gid  string
+				Cons *ConsumerGroup.Consumer
+			}{Gid: cmd.Data.(map[string]interface{})["Gid"].(string), Cons: &ConsumerGroup.Consumer{
+				Mode:                    cmd.Data.(map[string]interface{})["Cons"].(map[string]interface{})["Mode"].(int32),
+				SelfId:                  cmd.Data.(map[string]interface{})["Cons"].(map[string]interface{})["SelfId"].(string),
+				GroupId:                 cmd.Data.(map[string]interface{})["Cons"].(map[string]interface{})["GroupId"].(string),
+				Time:                    cmd.Data.(map[string]interface{})["Cons"].(map[string]interface{})["Time"].(int64),
+				TimeoutSessionMsec:      cmd.Data.(map[string]interface{})["Cons"].(map[string]interface{})["TimeoutSessionMsec"].(int32),
+				MaxReturnMessageSize:    cmd.Data.(map[string]interface{})["Cons"].(map[string]interface{})["MaxReturnMessageSize"].(int32),
+				MaxReturnMessageEntries: cmd.Data.(map[string]interface{})["Cons"].(map[string]interface{})["MaxReturnMessageEntries"].(int32),
+			}}
+		}
 		err := p.updateGroupConsumer(data.Gid, data.Cons)
 		return err, nil
 	//case PartitionCommand_ModeChange:
 	case PartitionCommand_Read:
-		data := cmd.Data.(struct {
+		data, ok1 := cmd.Data.(struct {
 			ConsId, ConsGid string
 			CommitIndex     int64
 			ReadEntryNum    int32
 		})
+		if !ok1 {
+			data = struct {
+				ConsId, ConsGid string
+				CommitIndex     int64
+				ReadEntryNum    int32
+			}{
+				ConsId:       cmd.Data.(map[string]interface{})["ConsId"].(string),
+				ConsGid:      cmd.Data.(map[string]interface{})["ConsGid"].(string),
+				CommitIndex:  cmd.Data.(map[string]interface{})["CommitIndex"].(int64),
+				ReadEntryNum: cmd.Data.(map[string]interface{})["ReadEntryNum"].(int32),
+			}
+		}
 		Data, ReadBeginOffset, ReadEntriesNum, IsAllow2Del, err := p.read(data.ConsId, data.ConsGid, data.CommitIndex, data.ReadEntryNum)
 		if err != nil {
 			return err, nil
