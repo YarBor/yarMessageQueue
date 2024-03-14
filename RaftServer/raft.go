@@ -246,7 +246,9 @@ func (rf *Raft) GetSnapshot() *ApplyMsg {
 
 // unsafe
 func (rf *Raft) getSnapshotUnsafe() *ApplyMsg {
-	rf.Dolog(-1, fmt.Sprintf("Get SnapShot index[%d] , term[%d]", rf.commandLog.Msgs[0].SnapshotIndex, rf.commandLog.Msgs[0].SnapshotTerm))
+	if rf.commandLog.Msgs[0].Snapshot != nil {
+		rf.Dolog(-1, fmt.Sprintf("Get SnapShot index[%d] , term[%d]", rf.commandLog.Msgs[0].SnapshotIndex, rf.commandLog.Msgs[0].SnapshotTerm))
+	}
 	return rf.commandLog.Msgs[0]
 }
 
@@ -474,9 +476,9 @@ func (rf *Raft) HeartBeat(arg *RequestArgs, rpl *RequestReply) {
 	}
 	if arg.Msg == nil || len(arg.Msg) == 0 {
 	} else {
-		for i := range arg.Msg {
-			rf.Dolog(int(arg.SelfIndex), "Try LOAD-Log", arg.Msg[i].string())
-		}
+		//for i := range arg.Msg {
+		//	rf.Dolog(int(arg.SelfIndex), "Try LOAD-Log", arg.Msg[i].string())
+		//}
 		rpl.LogDataMsg = rf.updateMsgs(arg.Msg)
 		rf.Dolog(-1, "Request Update Log Data To Leader", rpl.LogDataMsg)
 		rpl.PeerLastLogIndex, rpl.PeerLastLogTerm = rf.getLastLogData()
@@ -775,7 +777,7 @@ func (rf *Raft) checkMsg(data *LogData) int {
 	if lastRfLog.SnapshotValid {
 		lastRfLog.CommandIndex, lastRfLog.CommandTerm = lastRfLog.SnapshotIndex, lastRfLog.SnapshotTerm
 	}
-	rf.Dolog(-1, "Will check ", data.string())
+	//rf.Dolog(-1, "Will check ", data.string())
 
 	switch {
 	// 如果已经提交过的 忽略
@@ -1073,7 +1075,7 @@ func (rf *Raft) IsLeader() bool {
 }
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	defer rf.checkFuncDone("Start")()
-	rf.Dolog(-1, "Start Called ")
+	//rf.Dolog(-1, "Start Called ")
 
 	TermNow := rf.getTerm()
 	LevelNow := rf.getLevel()
@@ -1612,8 +1614,8 @@ func (rf *Raft) committer(applyCh chan ApplyMsg) {
 			}
 		}
 		// check
-		if ToLogIndex != LogedIndex {
-			rf.Dolog(-1, "Committer: ", "ToLogIndex ", ToLogIndex, "<= LogedIndex", LogedIndex)
+		if ToLogIndex > LogedIndex {
+			rf.Dolog(-1, "Committer: ", "ToLogIndex ", ToLogIndex, "> LogedIndex", LogedIndex)
 		}
 		if ToLogIndex <= LogedIndex {
 			ToLogIndex = LogedIndex

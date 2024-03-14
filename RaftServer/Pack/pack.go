@@ -20,11 +20,15 @@ var errorCount int // for TestCapital
 var checked map[reflect.Type]bool
 
 func Marshal(v interface{}) ([]byte, error) {
-	return msgPackage.Marshal(v)
+	data, err := msgPackage.Marshal(v)
+	//Log.DEBUG(data)
+	return data, err
 }
 
 func Unmarshal(bt []byte, v interface{}) error {
-	return msgPackage.Unmarshal(bt, v)
+	err := msgPackage.Unmarshal(bt, v)
+	//Log.DEBUG(v)
+	return err
 }
 
 type LabEncoder struct {

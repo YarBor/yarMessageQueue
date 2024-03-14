@@ -41,10 +41,10 @@ func (c *ClientEnd) Call(fName string, args, reply interface{}) bool {
 			Arg:       buff.Bytes(),
 		})
 		if errors.Is(err, grpc.ErrServerStopped) {
-			PgLog.ERROR(err.Error())
+			PgLog.ERROR(err.Error(), *c)
 			return false
 		} else if err != nil {
-			PgLog.PANIC(err.Error())
+			PgLog.ERROR(err.Error(), *c)
 			return false
 		}
 		if err = Pack.NewDecoder(bytes.NewBuffer(i.Result)).Decode(rpl); err != nil {
@@ -57,10 +57,10 @@ func (c *ClientEnd) Call(fName string, args, reply interface{}) bool {
 			Arg:       buff.Bytes(),
 		})
 		if errors.Is(err, grpc.ErrServerStopped) {
-			PgLog.ERROR(err.Error())
+			PgLog.ERROR(err.Error(), *c)
 			return false
 		} else if err != nil {
-			PgLog.PANIC(err.Error())
+			PgLog.ERROR(err.Error(), *c)
 			return false
 		}
 		if err = Pack.NewDecoder(bytes.NewBuffer(i.Result)).Decode(rpl); err != nil {
@@ -73,10 +73,10 @@ func (c *ClientEnd) Call(fName string, args, reply interface{}) bool {
 			Arg:       buff.Bytes(),
 		})
 		if errors.Is(err, grpc.ErrServerStopped) {
-			PgLog.ERROR(err.Error())
+			PgLog.ERROR(err.Error(), *c)
 			return false
 		} else if err != nil {
-			PgLog.PANIC(err.Error())
+			PgLog.ERROR(err.Error(), *c)
 			return false
 		}
 		if err = Pack.NewDecoder(bytes.NewBuffer(i.Result)).Decode(rpl); err != nil {

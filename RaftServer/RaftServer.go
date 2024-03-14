@@ -137,8 +137,8 @@ func (rn *RaftNode) Stop() {
 }
 
 type Entry struct {
-	Id      uint32
-	command interface{}
+	Id  uint32
+	Cmd interface{}
 }
 
 func (rn *RaftNode) GetNewCommandId() uint32 {
@@ -146,9 +146,10 @@ func (rn *RaftNode) GetNewCommandId() uint32 {
 }
 
 func (rn *RaftNode) Commit(command interface{}) (error, interface{}) {
+	mqLog.DEBUG("RaftNode) Commit Call", command)
 	entry := Entry{
-		Id:      rn.GetNewCommandId(),
-		command: command,
+		Id:  rn.GetNewCommandId(),
+		Cmd: command,
 	}
 	ch := make(chan struct {
 		err  error
@@ -156,6 +157,7 @@ func (rn *RaftNode) Commit(command interface{}) (error, interface{}) {
 	}, 1)
 
 	f := func(err error, data interface{}) {
+		//mqLog.DEBUG("RaftNode) Commit", err, data)
 		ch <- struct {
 			err  error
 			data interface{}
@@ -208,9 +210,12 @@ func (rn *RaftNode) CommandHandleFunc() {
 			if applyMsg.CommandValid {
 				command, ok := applyMsg.Command.(Entry)
 				if !ok {
-					panic("not reflect command")
+					command = Entry{
+						Id:  applyMsg.Command.(map[string]interface{})["Id"].(uint32),
+						Cmd: applyMsg.Command.(map[string]interface{})["Cmd"],
+					}
 				}
-				err, data := rn.CommandHandler.Handle(command.command)
+				err, data := rn.CommandHandler.Handle(command.Cmd)
 				rn.idMap.GetCallDelete(command.Id, err, data)
 				if rn.rf != nil && rn.Persistent.RaftStateSize() > RaftLogSize/2 {
 					bt := rn.SnapshotHandler.MakeSnapshot()
@@ -260,6 +265,7 @@ func (rs *RaftServer) Serve() error {
 	rs.server = s
 	pb.RegisterRaftCallServer(s, rs)
 
+	mqLog.DEBUG("RaftServer Serve ", rs.ID, rs.Url)
 	return rs.server.Serve(rs.listener)
 }
 func (rs *RaftServer) HeartBeat(_ context.Context, arg *pb.HeartBeatRequest) (rpl *pb.HeartBeatResponse, err error) {

@@ -63,8 +63,8 @@ type ProducerMD struct {
 }
 
 const (
-	BrokerMode_BrokerConnected    = 1
 	BrokerMode_BrokerDisconnected = 0
+	BrokerMode_BrokerConnected    = 1
 )
 
 type BrokerMD struct {
@@ -73,13 +73,13 @@ type BrokerMD struct {
 	HeartBeatSession int64
 	TimeoutTime      int64
 	IsMetadataNode   bool
-	IsDisconnect     int32
+	IsConnect        int32
 	PartitionNum     uint32
 }
 
 func (md *BrokerMD) ResetTimeoutTime() {
-	atomic.StoreInt64(&md.TimeoutTime, md.HeartBeatSession+time.Now().UnixMilli())
-	atomic.StoreInt32(&md.IsDisconnect, BrokerMode_BrokerConnected)
+	atomic.StoreInt64(&md.TimeoutTime, md.HeartBeatSession*2+time.Now().UnixMilli())
+	atomic.StoreInt32(&md.IsConnect, BrokerMode_BrokerConnected)
 }
 
 func NewBrokerMD(IsMetadataNode bool, ID, url string, HeartBeatSession int64) *BrokerMD {
@@ -91,7 +91,7 @@ func NewBrokerMD(IsMetadataNode bool, ID, url string, HeartBeatSession int64) *B
 		HeartBeatSession: HeartBeatSession,
 		TimeoutTime:      time.Now().UnixMilli() + HeartBeatSession,
 		IsMetadataNode:   IsMetadataNode,
-		IsDisconnect:     BrokerMode_BrokerDisconnected,
+		IsConnect:        BrokerMode_BrokerDisconnected,
 		PartitionNum:     0,
 	}
 }
@@ -212,12 +212,16 @@ func (mdc *MetaDataController) Stop() {
 	mdc.wg.Wait()
 }
 func NewMetaDataController(data ...*BrokerMD) *MetaDataController {
+	dataT := []*BrokerMD{}
+	for _, datum := range data {
+		dataT = append(dataT, datum.Copy())
+	}
 	res := &MetaDataController{
 		//MetaDataRaft: node,
 		mu: sync.RWMutex{},
 		MD: NewMetaData(),
 	}
-	for _, datum := range data {
+	for _, datum := range dataT {
 		res.MD.Brokers[datum.ID] = datum
 	}
 	return res
@@ -286,17 +290,8 @@ func (mdc *MetaDataController) KeepBrokersAlive(id string) error {
 	if mdc.IsLeader() == false {
 		return Err.ErrRequestNotLeader
 	}
-	mdc.mu.RLock()
-	defer mdc.mu.RUnlock()
-	mdc.MD.bkMu.RLock()
-	bk, ok := mdc.MD.Brokers[id]
-	mdc.MD.bkMu.RUnlock()
-	if !ok {
-		return Err.ErrSourceNotExist
-	} else {
-		bk.ResetTimeoutTime()
-		return nil
-	}
+	err, _ := mdc.commit(KeepAlive, id)
+	return err
 }
 
 func (md *MetaData) getConsGroupTerm(ConsGroupID string) (int32, error) {
@@ -451,20 +446,21 @@ func (md *MetaData) SnapShot() []byte {
 }
 
 const (
-	RegisterProducer      = "rgp"
-	RegisterConsumer      = "rgc"
-	UnRegisterProducer    = "urp"
-	UnRegisterConsumer    = "urc"
-	CreateTopic           = "ct"
-	RegisterConsGroup     = "rcg"
-	UnRegisterConsGroup   = "urcg"
-	JoinConsGroup         = "jcg"
-	LeaveConsGroup        = "lcg"
-	ConsGroupFocalTopic   = "ft"
-	ConsGroupUnFocalTopic = "uft"
-	DestroyTopic          = "dt"
-	AddPart               = "ap"
-	RemovePart            = "rp"
+	RegisterProducer      = "RegisterProducer     "
+	RegisterConsumer      = "RegisterConsumer     "
+	UnRegisterProducer    = "UnRegisterProducer   "
+	UnRegisterConsumer    = "UnRegisterConsumer   "
+	CreateTopic           = "CreateTopic          "
+	RegisterConsGroup     = "RegisterConsGroup    "
+	UnRegisterConsGroup   = "UnRegisterConsGroup  "
+	JoinConsGroup         = "JoinConsGroup        "
+	LeaveConsGroup        = "LeaveConsGroup       "
+	ConsGroupFocalTopic   = "ConsGroupFocalTopic  "
+	ConsGroupUnFocalTopic = "ConsGroupUnFocalTopic"
+	DestroyTopic          = "DestroyTopic         "
+	AddPart               = "AddPart              "
+	RemovePart            = "RemovePart           "
+	KeepAlive             = "KeepAlive            "
 )
 
 func ErrToResponse(err error) *api.Response {
@@ -532,9 +528,9 @@ func (md *MetaData) CheckConsumer(id string) error {
 	//return ok
 	_, ok := md.Consumers[id]
 	if ok {
-		return Err.ErrSourceAlreadyExist
+		return nil
 	}
-	return nil
+	return Err.ErrSourceAlreadyExist
 }
 
 func (md *MetaData) QueryConsumer(id string) (*ConsumerMD, error) {
@@ -573,19 +569,26 @@ func (md *MetaData) GetFreeBrokers(brokersNum int32) ([]*BrokerData, error) {
 	if brokersNum == 0 {
 		return nil, Err.ErrRequestIllegal
 	}
+	IsServerAlive := false
 	md.bkMu.RLock()
 	if brokersNum > int32(len(md.Brokers)) {
 		return nil, Err.ErrSourceNotEnough
 	}
 	bks := make([]*BrokerMD, 0, len(md.Brokers))
 	for _, bk := range md.Brokers {
+		if atomic.LoadInt32(&bk.IsConnect) == BrokerMode_BrokerConnected {
+			IsServerAlive = true
+		}
 		bks = append(bks, bk)
 	}
 	md.bkMu.RUnlock()
+	if !IsServerAlive {
+		return nil, Err.ErrSourceNotEnough
+	}
 	sort.Slice(bks, func(i, j int) bool {
-		modeI := atomic.LoadInt32(&bks[i].IsDisconnect)
-		modeJ := atomic.LoadInt32(&bks[j].IsDisconnect)
-		if modeI == modeJ {
+		modeI := atomic.LoadInt32(&bks[i].IsConnect)
+		modeJ := atomic.LoadInt32(&bks[j].IsConnect)
+		if modeI == modeJ && modeI != BrokerMode_BrokerDisconnected {
 			return atomic.LoadUint32(&bks[i].PartitionNum) < atomic.LoadUint32(&bks[j].PartitionNum)
 		}
 		return modeI < modeJ
@@ -593,6 +596,7 @@ func (md *MetaData) GetFreeBrokers(brokersNum int32) ([]*BrokerData, error) {
 	tmp := make([]*BrokerData, brokersNum)
 	for i := range tmp {
 		atomic.AddUint32(&bks[i%len(bks)].PartitionNum, 1)
+		Log.DEBUG(fmt.Sprintf("Add %s PartitionNum to %d", bks[i%len(bks)].ID, bks[i%len(bks)].PartitionNum))
 		tmp[i] = &bks[i%len(bks)].BrokerData
 	}
 	return tmp, nil
@@ -664,8 +668,9 @@ func (mdc *MetaDataController) Handle(command interface{}) (err error, retData i
 	mdc.mu.RLock()
 	defer mdc.mu.RUnlock()
 
-	Log.DEBUG("handle command", command)
-	println(mdc.ToGetJson(), fmt.Sprintf("%v", command), err, fmt.Sprintf("%v", retData))
+	//Log.DEBUG("handle command", command)
+	//println(mdc.ToGetJson(), fmt.Sprintf("%v", command), err, fmt.Sprintf("%v", retData))
+
 	mdCommand, OK := command.(MetadataCommand)
 	if !OK {
 		mdCommand = MetadataCommand{
@@ -677,6 +682,20 @@ func (mdc *MetaDataController) Handle(command interface{}) (err error, retData i
 	//var err error = nil
 	//var retData interface{} = nil
 	switch mdCommand.Mode {
+	case KeepAlive:
+		p, ok := mdCommand.Data.(string)
+		if !ok {
+			panic("KeepAlive false ")
+		}
+		mdc.MD.bkMu.RLock()
+		bk, ok := mdc.MD.Brokers[p]
+		mdc.MD.bkMu.RUnlock()
+		if !ok {
+			return Err.ErrSourceNotExist, nil
+		} else {
+			bk.ResetTimeoutTime()
+			return nil, nil
+		}
 	case
 		RegisterConsumer:
 		p, ok := mdCommand.Data.(*ConsumerMD)
@@ -688,19 +707,18 @@ func (mdc *MetaDataController) Handle(command interface{}) (err error, retData i
 				MaxReturnMessageSize: ccommand["MaxReturnMessageSize"].(int32),
 				TimeoutSessionMsec:   ccommand["TimeoutSessionMsec"].(int32),
 			}
-		} else {
-			panic(fmt.Sprintf("Ub"))
 		}
 		id := fmt.Sprint(mdc.MD.GetIncreaseID())
 		retData = id
 		p.SelfId = id
 		mdc.MD.cMu.Lock()
-		if err = mdc.MD.CheckConsumer(id); err == nil {
+		if err := mdc.MD.CheckConsumer(id); err == nil {
 			panic("Ub")
 		} else {
 			mdc.MD.Consumers[p.SelfId] = p
 		}
 		mdc.MD.cMu.Unlock()
+		return nil, retData
 	case
 		RegisterProducer:
 		p, ok1 := mdCommand.Data.(ProducerMD)
@@ -1007,7 +1025,7 @@ func (mdc *MetaDataController) Handle(command interface{}) (err error, retData i
 		mdc.MD.pMu.Lock()
 		p, ok := mdc.MD.Producers[*ProID]
 		if !ok {
-			err = (Err.ErrSourceNotExist)
+			err = Err.ErrSourceNotExist
 		} else {
 			delete(mdc.MD.Producers, *ProID)
 		}
@@ -1048,19 +1066,19 @@ func (mdc *MetaDataController) Handle(command interface{}) (err error, retData i
 
 	case
 		RegisterConsGroup:
-		GroupData, ok2 := mdCommand.Data.(struct {
+		GroupData, ok2 := mdCommand.Data.(*struct {
 			GroupID string
 			Mode    api.RegisterConsumerGroupRequest_PullOptionMode
 		})
 		if !ok2 {
-			GroupData = struct {
+			GroupData = &struct {
 				GroupID string
 				Mode    api.RegisterConsumerGroupRequest_PullOptionMode
-			}{GroupID: ccommand["GroupID"].(string), Mode: ccommand["GroupID"].(api.RegisterConsumerGroupRequest_PullOptionMode)}
+			}{GroupID: ccommand["GroupID"].(string), Mode: api.RegisterConsumerGroupRequest_PullOptionMode(ccommand["Mode"].(int32))}
 		}
 		mdc.MD.cgMu.Lock()
 		if _, ok := mdc.MD.ConsGroup[GroupData.GroupID]; ok {
-			err = (Err.ErrSourceAlreadyExist)
+			err = Err.ErrSourceAlreadyExist
 		} else {
 			Term := int32(0)
 			Term, err = mdc.MD.createConsGroupTerm(GroupData.GroupID)
@@ -1108,12 +1126,12 @@ func (mdc *MetaDataController) Handle(command interface{}) (err error, retData i
 
 		_, ok = mdc.MD.Consumers[data.SelfID]
 		if !ok {
-			err = (Err.ErrSourceNotExist)
+			err = Err.ErrSourceNotExist
 			goto JcgFinish
 		}
 		group, ok = mdc.MD.ConsGroup[data.GroupID]
 		if !ok {
-			err = (Err.ErrSourceNotExist)
+			err = Err.ErrSourceNotExist
 			goto JcgFinish
 		}
 
@@ -1159,7 +1177,8 @@ func (mdc *MetaDataController) Handle(command interface{}) (err error, retData i
 
 	JcgFinish:
 		mdc.MD.cgMu.RUnlock()
-		mdc.MD.cMu.Unlock()
+		mdc.MD.cMu.RUnlock()
+
 	case
 		ConsGroupFocalTopic:
 		data, okTrans := mdCommand.Data.(*struct {
@@ -1191,7 +1210,7 @@ func (mdc *MetaDataController) Handle(command interface{}) (err error, retData i
 		topic.FollowerGroupID = append(topic.FollowerGroupID, data.ConGiD)
 		topic.Part.Term, err = mdc.MD.addTpTerm(topic.Name)
 		partitions = topic.Part.Copy()
-		topic.mu.RUnlock()
+		topic.mu.Unlock()
 
 		if err != nil {
 			break
@@ -1228,7 +1247,7 @@ func (mdc *MetaDataController) Handle(command interface{}) (err error, retData i
 		mdc.MD.tpMu.RUnlock()
 
 		if !ok || !ok1 {
-			err = (Err.ErrSourceNotExist)
+			err = Err.ErrSourceNotExist
 			break
 		}
 
@@ -1243,7 +1262,7 @@ func (mdc *MetaDataController) Handle(command interface{}) (err error, retData i
 		}
 
 		if !success {
-			err = (Err.ErrSourceNotExist)
+			err = Err.ErrSourceNotExist
 			goto Failure
 		}
 
@@ -1681,14 +1700,15 @@ func (mdc *MetaDataController) RegisterConsumerGroup(req *api.RegisterConsumerGr
 	}
 	IsAssign := true
 reHash:
-	if *req.GroupId == "" {
+	if req.GroupId == nil || *req.GroupId == "" {
 		IsAssign = false
-		*req.GroupId = Random.RandStringBytes(16)
+		str := Random.RandStringBytes(16)
+		req.GroupId = &str
 	}
 	mdc.MD.cgMu.RLock()
 	_, ok := mdc.MD.ConsGroup[*req.GroupId]
 	mdc.MD.cgMu.RUnlock()
-	if ok == false {
+	if ok {
 		if IsAssign {
 			return &api.RegisterConsumerGroupResponse{
 				Response: ResponseErrSourceAlreadyExist(),
@@ -1719,7 +1739,7 @@ reHash:
 		Response:  ResponseSuccess(),
 		GroupTerm: CgTerm.(int32),
 		Cred: &api.Credentials{
-			Identity: 0,
+			Identity: api.Credentials_ConsumerGroup,
 			Id:       *req.GroupId,
 			Key:      "",
 		},
@@ -1929,12 +1949,13 @@ func (md *MetaData) reBalance(g *ConsumersGroupMD) error {
 	members := make([]string, 0, len(g.ConsumersFcPart))
 
 	// 重写ConsumerFocalPartMap [包括重新为每个key-value分配slice]
-	for s, i := range g.ConsumersFcPart {
+	for s := range g.ConsumersFcPart {
 		members = append(members, s)
-		*i = make([]struct {
+		ii := make([]struct {
 			Topic, Part string
 			Urls        []*BrokerData
 		}, 0, len(TpUrls)/len(g.ConsumersFcPart)+1)
+		g.ConsumersFcPart[s] = &ii
 	}
 
 	// map 遍历的顺序不同 通过sort 保持重新分配的 水平和一致
@@ -1951,7 +1972,7 @@ func (md *MetaData) reBalance(g *ConsumersGroupMD) error {
 	// 在消费者之间重新平衡主题-分区URL
 	if len(members) > 0 {
 		for i, tpu := range TpUrls {
-			*g.ConsumersFcPart[members[i/len(members)]] = append(*g.ConsumersFcPart[members[i/len(members)]], tpu)
+			*g.ConsumersFcPart[members[i%len(members)]] = append(*g.ConsumersFcPart[members[i%len(members)]], tpu)
 		}
 	}
 
@@ -2334,7 +2355,7 @@ func (md *MetaData) BrokersSourceCheck() error {
 	defer md.bkMu.RUnlock()
 	count := 0
 	for _, brokerMD := range md.Brokers {
-		if brokerMD.IsDisconnect == BrokerMode_BrokerDisconnected {
+		if brokerMD.IsConnect == BrokerMode_BrokerDisconnected {
 			count++
 		}
 	}
@@ -2347,23 +2368,22 @@ func (md *MetaData) BrokersSourceCheck() error {
 func (mdc *MetaDataController) CheckBrokersAlive() {
 	defer mdc.wg.Done()
 	for mdc.isAlive {
-		if mdc.mu.TryRLock() {
-			if mdc.MD.bkMu.TryRLock() {
-				now := time.Now().UnixMilli()
-				for _, brokerMD := range mdc.MD.Brokers {
-					if atomic.LoadInt64(&brokerMD.TimeoutTime) < now {
-						// >> Mey here Race condition
-						atomic.StoreInt32(&brokerMD.IsDisconnect, BrokerMode_BrokerDisconnected)
-						// For Race
-						if atomic.LoadInt64(&brokerMD.TimeoutTime) > now {
-							atomic.StoreInt32(&brokerMD.IsDisconnect, BrokerMode_BrokerConnected)
+		if mdc.MetaDataRaft.IsLeader() {
+			if mdc.mu.TryRLock() {
+				if mdc.MD.bkMu.TryRLock() {
+					now := time.Now().UnixMilli()
+					for _, brokerMD := range mdc.MD.Brokers {
+						if atomic.LoadInt64(&brokerMD.TimeoutTime) < now {
+							// >> Mey here Race condition
+							atomic.StoreInt32(&brokerMD.IsConnect, BrokerMode_BrokerDisconnected)
+							// For Race
 						}
-					}
 
+					}
+					mdc.MD.bkMu.RUnlock()
 				}
-				mdc.MD.bkMu.RUnlock()
+				mdc.mu.RUnlock()
 			}
-			mdc.mu.RUnlock()
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

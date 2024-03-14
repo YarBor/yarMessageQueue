@@ -1,7 +1,9 @@
 package PgLog
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 )
@@ -29,6 +31,13 @@ func init() {
 	log.SetFlags(log.Lmicroseconds)
 }
 
+func _string(a interface{}) string {
+	if str, ok := a.(string); ok {
+		return str
+	}
+	data, _ := json.Marshal(a)
+	return string(data)
+}
 func SetLogLevel(l int) error {
 	switch l {
 	case LogLevel_TRACE:
@@ -46,41 +55,69 @@ func SetLogLevel(l int) error {
 
 func TRACE(i ...interface{}) {
 	if logLevel <= LogLevel_TRACE {
-		log.Printf("TRACE : %#v", i)
+		st1 := ""
+		for _, i2 := range i {
+			st1 += fmt.Sprintf("%s ", _string(i2))
+		}
+		log.Printf("TRACE : %s", st1)
 	}
 }
 
 func DEBUG(i ...interface{}) {
 	if logLevel <= LogLevel_DEBUG {
-		log.Printf("DEBUG : %#v", i)
+		st1 := ""
+		for _, i2 := range i {
+			st1 += fmt.Sprintf("%s ", _string(i2))
+		}
+		log.Printf("DEBUG : %s", st1)
 	}
 }
 
 func INFO(i ...interface{}) {
 	if logLevel <= LogLevel_INFO {
-		log.Printf("INFO : %#v", i)
+		st1 := ""
+		for _, i2 := range i {
+			st1 += fmt.Sprintf("%s ", _string(i2))
+		}
+		log.Printf("INFO : %s", st1)
 	}
 }
 
 func WARN(i ...interface{}) {
 	if logLevel <= LogLevel_WARN {
-		log.Printf("WARN : %#v", i)
+		st1 := ""
+		for _, i2 := range i {
+			st1 += fmt.Sprintf("%s ", _string(i2))
+		}
+		log.Printf("WARN : %s", st1)
 	}
 }
 
 func ERROR(i ...interface{}) {
 	if logLevel <= LogLevel_ERROR {
-		log.Printf("ERROR : %#v", i)
+		st1 := ""
+		for _, i2 := range i {
+			st1 += fmt.Sprintf("%s ", _string(i2))
+		}
+		log.Printf("ERROR : %s", st1)
 	}
 }
 
 func FATAL(i ...interface{}) {
 	if logLevel <= LogLevel_FATAL {
-		log.Fatalf("FATAL : %#v", i)
+		st1 := ""
+		for _, i2 := range i {
+			st1 += fmt.Sprintf("%s ", _string(i2))
+		}
+		log.Fatalf("FATAL : %s", st1)
 	}
 }
 
 func PANIC(i ...interface{}) {
-	log.Printf("PANIC : %#v", i)
+	st1 := ""
+	for _, i2 := range i {
+		st1 += fmt.Sprintf("%s ", _string(i2))
+	}
+	log.Printf("PANIC : %s", st1)
 	panic(i)
 }
