@@ -3,7 +3,7 @@ package RaftServer
 import (
 	PgLog "MqServer/Log"
 	"MqServer/RaftServer/Pack"
-	pb "MqServer/rpc"
+	pb "MqServer/api"
 	"bytes"
 	"context"
 	"errors"
@@ -44,13 +44,12 @@ func (c *ClientEnd) Call(fName string, args, reply interface{}) bool {
 			PgLog.ERROR(err.Error())
 			return false
 		} else if err != nil {
-			PgLog.ERROR(err.Error())
+			PgLog.PANIC(err.Error())
 			return false
 		}
 		if err = Pack.NewDecoder(bytes.NewBuffer(i.Result)).Decode(rpl); err != nil {
 			panic(err.Error())
 		}
-		break
 	case "RaftServer.RequestPreVote":
 		i, err := c.RequestPreVote(context.Background(), &pb.RequestPreVoteRequest{
 			Topic:     c.Rfn.T,
@@ -61,13 +60,12 @@ func (c *ClientEnd) Call(fName string, args, reply interface{}) bool {
 			PgLog.ERROR(err.Error())
 			return false
 		} else if err != nil {
-			PgLog.ERROR(err.Error())
+			PgLog.PANIC(err.Error())
 			return false
 		}
 		if err = Pack.NewDecoder(bytes.NewBuffer(i.Result)).Decode(rpl); err != nil {
 			panic(err.Error())
 		}
-		break
 	case "RaftServer.HeartBeat":
 		i, err := c.HeartBeat(context.Background(), &pb.HeartBeatRequest{
 			Topic:     c.Rfn.T,
@@ -78,13 +76,12 @@ func (c *ClientEnd) Call(fName string, args, reply interface{}) bool {
 			PgLog.ERROR(err.Error())
 			return false
 		} else if err != nil {
-			PgLog.ERROR(err.Error())
+			PgLog.PANIC(err.Error())
 			return false
 		}
 		if err = Pack.NewDecoder(bytes.NewBuffer(i.Result)).Decode(rpl); err != nil {
 			panic(err.Error())
 		}
-		break
 	default:
 		panic("unknown RPC request")
 	}

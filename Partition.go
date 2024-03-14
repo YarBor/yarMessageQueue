@@ -443,10 +443,10 @@ func (ptc *PartitionsController) RegisterPart(t, p string,
 ) (part *Partition, err error) {
 	ptc.partsMu.Lock()
 	defer ptc.partsMu.Unlock()
-	if MaxSize == -1 {
+	if MaxSize == 0 {
 		MaxSize = defaultMaxSize
 	}
-	if MaxEntries == -1 {
+	if MaxEntries == 0 {
 		MaxEntries = defaultMaxEntries
 	}
 	ok := false

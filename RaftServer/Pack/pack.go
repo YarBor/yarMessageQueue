@@ -13,8 +13,6 @@ import (
 	"io"
 	"reflect"
 	"sync"
-	"unicode"
-	"unicode/utf8"
 )
 
 var mu sync.Mutex
@@ -40,12 +38,12 @@ func NewEncoder(w io.Writer) *LabEncoder {
 }
 
 func (enc *LabEncoder) Encode(e interface{}) error {
-	checkValue(e)
+	//checkValue(e)
 	return enc.gob.Encode(e)
 }
 
 func (enc *LabEncoder) EncodeValue(value reflect.Value) error {
-	checkValue(value.Interface())
+	//checkValue(value.Interface())
 	return enc.gob.EncodeValue(value)
 }
 
@@ -60,8 +58,8 @@ func NewDecoder(r io.Reader) *LabDecoder {
 }
 
 func (dec *LabDecoder) Decode(e interface{}) error {
-	checkValue(e)
-	checkDefault(e)
+	//checkValue(e)
+	//checkDefault(e)
 	return dec.gob.Decode(e)
 }
 
@@ -74,51 +72,51 @@ func RegisterName(name string, value interface{}) {
 }
 
 func checkValue(value interface{}) {
-	checkType(reflect.TypeOf(value))
+	//checkType(reflect.TypeOf(value))
 }
 
-func checkType(t reflect.Type) {
-	k := t.Kind()
-
-	mu.Lock()
-	// only complain once, and avoid recursion.
-	if checked == nil {
-		checked = map[reflect.Type]bool{}
-	}
-	if checked[t] {
-		mu.Unlock()
-		return
-	}
-	checked[t] = true
-	mu.Unlock()
-
-	switch k {
-	case reflect.Struct:
-		for i := 0; i < t.NumField(); i++ {
-			f := t.Field(i)
-			rune, _ := utf8.DecodeRuneInString(f.Name)
-			if unicode.IsUpper(rune) == false {
-				// ta da
-				fmt.Printf("labgob error: lower-case field %v of %v in RPC or persist/snapshot will break your RaftServer\n",
-					f.Name, t.Name())
-				mu.Lock()
-				errorCount += 1
-				mu.Unlock()
-			}
-			checkType(f.Type)
-		}
-		return
-	case reflect.Slice, reflect.Array, reflect.Ptr:
-		checkType(t.Elem())
-		return
-	case reflect.Map:
-		checkType(t.Elem())
-		checkType(t.Key())
-		return
-	default:
-		return
-	}
-}
+//func checkType(t reflect.Type) {
+//	k := t.Kind()
+//
+//	mu.Lock()
+//	// only complain once, and avoid recursion.
+//	if checked == nil {
+//		checked = map[reflect.Type]bool{}
+//	}
+//	if checked[t] {
+//		mu.Unlock()
+//		return
+//	}
+//	checked[t] = true
+//	mu.Unlock()
+//
+//	switch k {
+//	case reflect.Struct:
+//		for i := 0; i < t.NumField(); i++ {
+//			f := t.Field(i)
+//			rune, _ := utf8.DecodeRuneInString(f.Name)
+//			if unicode.IsUpper(rune) == false {
+//				// ta da
+//				fmt.Printf("labgob error: lower-case field %v of %v in RPC or persist/snapshot will break your RaftServer\n",
+//					f.Name, t.Name())
+//				mu.Lock()
+//				errorCount += 1
+//				mu.Unlock()
+//			}
+//			checkType(f.Type)
+//		}
+//		return
+//	case reflect.Slice, reflect.Array, reflect.Ptr:
+//		checkType(t.Elem())
+//		return
+//	case reflect.Map:
+//		checkType(t.Elem())
+//		checkType(t.Key())
+//		return
+//	default:
+//		return
+//	}
+//}
 
 // warn if the value contains non-default values,
 // as it would if one sent an RPC but the reply

@@ -16,8 +16,8 @@ func SetLogFlags(flags int) {
 
 const (
 	LogLevel_TRACE = iota
-	LogLevel_DEBUG
 	LogLevel_INFO
+	LogLevel_DEBUG
 	LogLevel_WARN
 	LogLevel_ERROR
 	LogLevel_FATAL
@@ -37,7 +37,6 @@ func SetLogLevel(l int) error {
 	case LogLevel_WARN:
 	case LogLevel_ERROR:
 	case LogLevel_FATAL:
-		break
 	default:
 		return errors.New("Invalid log level")
 	}
@@ -47,36 +46,41 @@ func SetLogLevel(l int) error {
 
 func TRACE(i ...interface{}) {
 	if logLevel <= LogLevel_TRACE {
-		log.Print("TRACE : ", i)
+		log.Printf("TRACE : %#v", i)
 	}
 }
 
 func DEBUG(i ...interface{}) {
 	if logLevel <= LogLevel_DEBUG {
-		log.Print("DEBUG : ", i)
+		log.Printf("DEBUG : %#v", i)
 	}
 }
 
 func INFO(i ...interface{}) {
 	if logLevel <= LogLevel_INFO {
-		log.Print("INFO : ", i)
+		log.Printf("INFO : %#v", i)
 	}
 }
 
 func WARN(i ...interface{}) {
 	if logLevel <= LogLevel_WARN {
-		log.Print("WARN : ", i)
+		log.Printf("WARN : %#v", i)
 	}
 }
 
 func ERROR(i ...interface{}) {
 	if logLevel <= LogLevel_ERROR {
-		log.Print("ERROR : ", i)
+		log.Printf("ERROR : %#v", i)
 	}
 }
 
 func FATAL(i ...interface{}) {
 	if logLevel <= LogLevel_FATAL {
-		log.Fatal("FATAL : ", i)
+		log.Fatalf("FATAL : %#v", i)
 	}
+}
+
+func PANIC(i ...interface{}) {
+	log.Printf("PANIC : %#v", i)
+	panic(i)
 }

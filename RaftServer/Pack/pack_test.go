@@ -1,7 +1,7 @@
 package Pack
 
 import (
-	pb "MqServer/rpc"
+	pb "MqServer/api"
 	"encoding/json"
 	"github.com/stretchr/testify/assert"
 	"testing"

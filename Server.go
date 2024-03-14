@@ -5,7 +5,7 @@ import (
 	"MqServer/Err"
 	Log "MqServer/Log"
 	"MqServer/RaftServer"
-	pb "MqServer/rpc"
+	pb "MqServer/api"
 	"context"
 	"google.golang.org/grpc"
 	"math"

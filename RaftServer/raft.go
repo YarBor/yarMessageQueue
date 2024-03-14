@@ -1612,7 +1612,9 @@ func (rf *Raft) committer(applyCh chan ApplyMsg) {
 			}
 		}
 		// check
-		rf.Dolog(-1, "Committer: ", "ToLogIndex ", ToLogIndex, "<= LogedIndex", LogedIndex)
+		if ToLogIndex != LogedIndex {
+			rf.Dolog(-1, "Committer: ", "ToLogIndex ", ToLogIndex, "<= LogedIndex", LogedIndex)
+		}
 		if ToLogIndex <= LogedIndex {
 			ToLogIndex = LogedIndex
 			continue

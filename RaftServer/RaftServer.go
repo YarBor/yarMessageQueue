@@ -5,7 +5,7 @@ import (
 	mqLog "MqServer/Log"
 	"MqServer/RaftServer/Pack"
 	"MqServer/RaftServer/Persister"
-	pb "MqServer/rpc"
+	pb "MqServer/api"
 	"bytes"
 	"context"
 	"errors"
@@ -77,6 +77,7 @@ type SnapshotHandler interface {
 }
 
 type RaftNode struct {
+	isAlive    bool
 	rf         *Raft
 	T          string
 	P          string
@@ -91,6 +92,10 @@ type RaftNode struct {
 
 	CommandHandler  CommandHandler
 	SnapshotHandler SnapshotHandler
+}
+
+func (rn *RaftNode) IsAlive() bool {
+	return rn.isAlive
 }
 
 func (rn *RaftNode) IsLeader() bool {
@@ -123,7 +128,10 @@ func (rn *RaftNode) LinkPeerRpcServer(addr, id string) (*ClientEnd, error) {
 }
 
 func (rn *RaftNode) Stop() {
-	rn.rf.Kill()
+	rn.isAlive = false
+	if rn.rf != nil {
+		rn.rf.Kill()
+	}
 	rn.CloseAllConn()
 	rn.wg.Wait()
 }
@@ -158,7 +166,7 @@ func (rn *RaftNode) Commit(command interface{}) (error, interface{}) {
 		rn.idMap.Add(entry.Id, f)
 		rn.ch <- ApplyMsg{
 			CommandValid: true,
-			Command:      command,
+			Command:      entry,
 		}
 	} else {
 		if rn.rf == nil || rn.rf.killed() {
@@ -193,7 +201,7 @@ func (rn *RaftNode) CommandHandleFunc() {
 	for {
 		select {
 		case <-time.After(10 * time.Millisecond):
-			if rn.rf.killed() {
+			if !rn.IsAlive() {
 				return
 			}
 		case applyMsg := <-rn.ch:
@@ -202,9 +210,9 @@ func (rn *RaftNode) CommandHandleFunc() {
 				if !ok {
 					panic("not reflect command")
 				}
-				err, data := rn.CommandHandler.Handle(command)
+				err, data := rn.CommandHandler.Handle(command.command)
 				rn.idMap.GetCallDelete(command.Id, err, data)
-				if rn.rf.persister.RaftStateSize() > RaftLogSize/3 {
+				if rn.rf != nil && rn.Persistent.RaftStateSize() > RaftLogSize/2 {
 					bt := rn.SnapshotHandler.MakeSnapshot()
 					rn.rf.Snapshot(applyMsg.CommandIndex, bt)
 				}
@@ -216,12 +224,15 @@ func (rn *RaftNode) CommandHandleFunc() {
 }
 
 func (rn *RaftNode) Start() {
+	defer func() {
+		rn.wg.Add(1)
+		go rn.CommandHandleFunc()
+	}()
+	rn.isAlive = true
 	if len(rn.Peers) == 1 {
 		return
 	}
 	rn.rf = Make(rn.Peers, rn.me, Persister.MakePersister(), rn.ch)
-	rn.wg.Add(1)
-	go rn.CommandHandleFunc()
 }
 
 type RaftServer struct {
@@ -431,17 +442,22 @@ func MakeRaftServer() (*RaftServer, error) {
 
 func (rs *RaftServer) RegisterMetadataRaft(url_IDs []struct{ Url, ID string }, ch CommandHandler, sh SnapshotHandler) (*RaftNode, error) {
 	if atomic.LoadInt32(&rs.isRaftAddrSet) == 0 {
-		return nil, (Err.ErrSourceNotExist)
+		return nil, Err.ErrSourceNotExist
 	}
 	T, P := "", ""
 	rn := RaftNode{
-		T:               T,
-		P:               P,
-		Peers:           make([]*ClientEnd, len(url_IDs)),
-		me:              -1,
-		ch:              make(chan ApplyMsg),
-		Persistent:      Persister.MakePersister(),
-		idMap:           syncIdMap{},
+		T:          T,
+		P:          P,
+		Peers:      make([]*ClientEnd, len(url_IDs)),
+		me:         -1,
+		ch:         make(chan ApplyMsg),
+		Persistent: Persister.MakePersister(),
+		idMap: syncIdMap{
+			mu: sync.Mutex{},
+			Map: make(map[uint32]struct {
+				fn func(err error, data interface{})
+			}),
+		},
 		wg:              sync.WaitGroup{},
 		commandIdOffset: 0,
 		CommandHandler:  ch,
@@ -459,7 +475,7 @@ func (rs *RaftServer) RegisterMetadataRaft(url_IDs []struct{ Url, ID string }, c
 	}
 	if rn.me == -1 {
 		rn.CloseAllConn()
-		return nil, (Err.ErrRequestIllegal)
+		return nil, Err.ErrRequestIllegal
 	}
 	rs.mu.Lock()
 	_, ok := rs.rfs[T]
@@ -469,7 +485,7 @@ func (rs *RaftServer) RegisterMetadataRaft(url_IDs []struct{ Url, ID string }, c
 	rs.rfs[T][P] = &rn
 	rs.mu.Unlock()
 	if ok {
-		return nil, (Err.ErrSourceAlreadyExist)
+		return nil, Err.ErrSourceAlreadyExist
 	}
 	rs.metadataRaft = &rn
 	return &rn, nil
