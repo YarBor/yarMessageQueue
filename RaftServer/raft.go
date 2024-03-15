@@ -51,7 +51,7 @@ var (
 	LevelFollower  = int32(1)
 
 	commitChanSize   = int32(100)
-	HeartbeatTimeout = 40 * time.Millisecond
+	HeartbeatTimeout = 400 * time.Millisecond
 	voteTimeOut      = 100
 
 	LogCheckBeginOrReset = 0
@@ -141,7 +141,7 @@ func (R *RaftPeer) updateLastTalkTime() {
 	atomic.StoreInt64(&R.lastTalkTime, time.Now().UnixMicro())
 }
 func (R *RaftPeer) isTimeOut() bool {
-	return (time.Now().UnixMicro() - atomic.LoadInt64(&R.lastTalkTime)) > (HeartbeatTimeout * 3 / 2).Microseconds()
+	return (time.Now().UnixMicro() - atomic.LoadInt64(&R.lastTalkTime)) > (HeartbeatTimeout * 2).Microseconds()
 }
 func (rf *Raft) checkOutLeaderOnline() bool {
 	if rf.level != LevelLeader {
@@ -1649,6 +1649,7 @@ func (rf *Raft) committer(applyCh chan ApplyMsg) {
 								// commit operation
 								select {
 								case applyCh <- *rf.commandLog.Msgs[expectedLogMsgCacheIndex]:
+									MyLogger.INFO("submitCommand", rf.commandLog.Msgs[expectedLogMsgCacheIndex].Command)
 								// 阻塞占有锁 不呢超过5ms
 								case <-time.After(5 * time.Millisecond):
 									goto done

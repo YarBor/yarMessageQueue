@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sync/atomic"
 )
 
 func SetLogOutput(w io.Writer) {
@@ -25,7 +26,7 @@ const (
 	LogLevel_FATAL
 )
 
-var logLevel int = LogLevel_DEBUG
+var logLevel int32 = LogLevel_DEBUG
 
 func init() {
 	log.SetFlags(log.Lmicroseconds)
@@ -49,12 +50,12 @@ func SetLogLevel(l int) error {
 	default:
 		return errors.New("Invalid log level")
 	}
-	logLevel = l
+	atomic.StoreInt32(&logLevel, int32(l))
 	return nil
 }
 
 func TRACE(i ...interface{}) {
-	if logLevel <= LogLevel_TRACE {
+	if atomic.LoadInt32(&logLevel) <= LogLevel_TRACE {
 		st1 := ""
 		for _, i2 := range i {
 			st1 += fmt.Sprintf("%s ", _string(i2))
@@ -64,7 +65,7 @@ func TRACE(i ...interface{}) {
 }
 
 func DEBUG(i ...interface{}) {
-	if logLevel <= LogLevel_DEBUG {
+	if atomic.LoadInt32(&logLevel) <= LogLevel_DEBUG {
 		st1 := ""
 		for _, i2 := range i {
 			st1 += fmt.Sprintf("%s ", _string(i2))
@@ -74,7 +75,7 @@ func DEBUG(i ...interface{}) {
 }
 
 func INFO(i ...interface{}) {
-	if logLevel <= LogLevel_INFO {
+	if atomic.LoadInt32(&logLevel) <= LogLevel_INFO {
 		st1 := ""
 		for _, i2 := range i {
 			st1 += fmt.Sprintf("%s ", _string(i2))
@@ -84,7 +85,7 @@ func INFO(i ...interface{}) {
 }
 
 func WARN(i ...interface{}) {
-	if logLevel <= LogLevel_WARN {
+	if atomic.LoadInt32(&logLevel) <= LogLevel_WARN {
 		st1 := ""
 		for _, i2 := range i {
 			st1 += fmt.Sprintf("%s ", _string(i2))
@@ -94,7 +95,7 @@ func WARN(i ...interface{}) {
 }
 
 func ERROR(i ...interface{}) {
-	if logLevel <= LogLevel_ERROR {
+	if atomic.LoadInt32(&logLevel) <= LogLevel_ERROR {
 		st1 := ""
 		for _, i2 := range i {
 			st1 += fmt.Sprintf("%s ", _string(i2))
@@ -104,7 +105,7 @@ func ERROR(i ...interface{}) {
 }
 
 func FATAL(i ...interface{}) {
-	if logLevel <= LogLevel_FATAL {
+	if atomic.LoadInt32(&logLevel) <= LogLevel_FATAL {
 		st1 := ""
 		for _, i2 := range i {
 			st1 += fmt.Sprintf("%s ", _string(i2))

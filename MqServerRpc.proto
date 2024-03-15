@@ -226,17 +226,18 @@ message MQHeartBeatData {
 
 message Response {
   enum Mode {
-    Success = 0;
-    Failure = 1;
-    NotServe = 9;
-    ErrTimeout = 8;
-    ErrNeedToWait = 10;
-    ErrNotLeader = 7;
-    ErrSourceNotExist = 2;
-    ErrSourceAlreadyExist = 6;
-    ErrPartitionChanged = 3;
-    ErrRequestIllegal = 4;
-    ErrSourceNotEnough = 5;
+    Unset = 0;
+    Success = 1;
+    Failure = 2;
+    NotServe = 3;
+    ErrTimeout = 4;
+    ErrNeedToWait = 5;
+    ErrNotLeader = 6;
+    ErrSourceNotExist = 7;
+    ErrSourceAlreadyExist = 8;
+    ErrPartitionChanged = 9;
+    ErrRequestIllegal = 10;
+    ErrSourceNotEnough = 11;
   }
   Mode mode = 1;
 }

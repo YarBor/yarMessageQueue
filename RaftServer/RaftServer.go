@@ -22,7 +22,7 @@ const (
 	ErrNodeDidNotStart = "node did not start"
 )
 
-var commitTimeout time.Duration = time.Millisecond * 500
+var commitTimeout time.Duration = time.Millisecond * 500000000000
 var RaftLogSize = 1024 * 1024 * 2
 
 const (
