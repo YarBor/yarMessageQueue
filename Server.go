@@ -240,9 +240,9 @@ func (s *broker) registerRaftNode() (err error) {
 	if s.MetaDataController == nil {
 		return (Err.ErrRequestIllegal)
 	}
-	ID_Url := []struct{ Url, ID string }{}
+	ID_Url := []struct{ ID, Url string }{}
 	for ID, peer := range s.MetadataPeers {
-		ID_Url = append(ID_Url, struct{ Url, ID string }{Url: peer.Url, ID: ID})
+		ID_Url = append(ID_Url, struct{ ID, Url string }{Url: peer.Url, ID: ID})
 	}
 	s.MetaDataController.MetaDataRaft, err = s.RaftServer.RegisterMetadataRaft(ID_Url, s.MetaDataController, s.MetaDataController)
 	return err

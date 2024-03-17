@@ -13,7 +13,7 @@ import (
 type ClientEnd struct {
 	pb.RaftCallClient
 	ID   string
-	Rfn  *RaftNode // father
+	rfn  *RaftNode // father
 	Conn *grpc.ClientConn
 }
 
@@ -36,8 +36,8 @@ func (c *ClientEnd) Call(fName string, args, reply interface{}) bool {
 	switch fName {
 	case "RaftServer.RequestVote":
 		i, err := c.RequestVote(context.Background(), &pb.RequestVoteRequest{
-			Topic:     c.Rfn.T,
-			Partition: c.Rfn.P,
+			Topic:     c.rfn.T,
+			Partition: c.rfn.P,
 			Arg:       buff.Bytes(),
 		})
 		if errors.Is(err, grpc.ErrServerStopped) {
@@ -52,8 +52,8 @@ func (c *ClientEnd) Call(fName string, args, reply interface{}) bool {
 		}
 	case "RaftServer.RequestPreVote":
 		i, err := c.RequestPreVote(context.Background(), &pb.RequestPreVoteRequest{
-			Topic:     c.Rfn.T,
-			Partition: c.Rfn.P,
+			Topic:     c.rfn.T,
+			Partition: c.rfn.P,
 			Arg:       buff.Bytes(),
 		})
 		if errors.Is(err, grpc.ErrServerStopped) {
@@ -68,8 +68,8 @@ func (c *ClientEnd) Call(fName string, args, reply interface{}) bool {
 		}
 	case "RaftServer.HeartBeat":
 		i, err := c.HeartBeat(context.Background(), &pb.HeartBeatRequest{
-			Topic:     c.Rfn.T,
-			Partition: c.Rfn.P,
+			Topic:     c.rfn.T,
+			Partition: c.rfn.P,
 			Arg:       buff.Bytes(),
 		})
 		if errors.Is(err, grpc.ErrServerStopped) {

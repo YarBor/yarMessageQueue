@@ -51,8 +51,8 @@ var (
 	LevelFollower  = int32(1)
 
 	commitChanSize   = int32(100)
-	HeartbeatTimeout = 400 * time.Millisecond
-	voteTimeOut      = 100
+	HeartbeatTimeout = 300 * time.Millisecond
+	voteTimeOut      = 300 * time.Millisecond
 
 	LogCheckBeginOrReset = 0
 	LogCheckAppend       = 1
@@ -751,6 +751,12 @@ func (rf *Raft) RequestVote(args *RequestArgs, reply *RequestReply) {
 	reply.ReturnTime = time.Now()
 	reply.PeerCommitIndex = selfCommitINdex
 	rf.Dolog(int(args.SelfIndex), "answer RequestVote", args.string(), reply.string())
+	if reply.IsAgree {
+		select {
+		case rf.levelChangeChan <- struct{}{}:
+		default:
+		}
+	}
 }
 
 func (rf *Raft) checkMsg(data *LogData) int {
@@ -1322,7 +1328,7 @@ func (rf *Raft) ticker() {
 				return
 			case <-rf.timeOutChan:
 				atomic.StoreInt32(&rf.isLeaderAlive, 1)
-			case <-time.NewTimer(time.Duration((int64(voteTimeOut) + rand.Int63()%150) * time.Hour.Milliseconds())).C:
+			case <-time.After(voteTimeOut + (time.Duration(rand.Int63()%150) * time.Millisecond)):
 				rf.Dolog(-1, "TimeOut")
 				atomic.StoreInt32(&rf.isLeaderAlive, 0)
 				rf.wg.Add(1)
@@ -1573,7 +1579,7 @@ func (rf *Raft) committer(applyCh chan ApplyMsg) {
 		// leader scan followers to deside New TologIndex
 		case <-rf.KilledChan:
 			return
-		case <-time.After(5 * time.Millisecond):
+		case <-time.After(25 * time.Millisecond):
 			if rf.getLevel() == LevelLeader {
 				//halfLenPeersCommitted := 0
 				for i := range rf.raftPeers {

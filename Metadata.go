@@ -1356,6 +1356,8 @@ func (mdc *MetaDataController) Handle(command interface{}) (err error, retData i
 					Url: m["Url"].(string),
 				})
 			}
+		} else {
+			println(1)
 		}
 		var (
 			needReBalance []string
@@ -1450,12 +1452,12 @@ func (mdc *MetaDataController) Handle(command interface{}) (err error, retData i
 		mdc.MD.cgMu.RUnlock()
 	case
 		RemovePart:
-		data, okTrans := mdCommand.Data.(struct {
+		data, okTrans := mdCommand.Data.(*struct {
 			Topic string
 			Part  string
 		})
 		if !okTrans {
-			data = struct {
+			data = &struct {
 				Topic string
 				Part  string
 			}{Topic: ccommand["Topic"].(string), Part: ccommand["Part"].(string)}
@@ -2066,7 +2068,7 @@ func (mdc *MetaDataController) AddPart(req *api.AddPartRequest) *api.AddPartResp
 	t.mu.RLock()
 	for _, part := range t.Part.Parts {
 		if part.Part == req.Part.PartName {
-			err = (Err.ErrSourceAlreadyExist)
+			err = Err.ErrSourceAlreadyExist
 			break
 		}
 	}

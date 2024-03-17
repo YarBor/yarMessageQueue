@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-type LeaderCheck interface {
+type leaderCheck interface {
 	IsLeader() bool
 }
 
@@ -19,8 +19,8 @@ type GroupsManager struct {
 	mu               sync.RWMutex
 	IsStop           bool
 	ID2ConsumerGroup map[string]*ConsumerGroup // CredId -- Index
-	SessionLogoutNotifier
-	LeaderCheck
+	offlineCall      SessionLogoutNotifier
+	leaderCheck
 }
 
 func (gm *GroupsManager) GetAllGroup() []*ConsumerGroup {
@@ -90,12 +90,12 @@ func (gm *GroupsManager) DelGroup(ID string) {
 	defer gm.mu.Unlock()
 	delete(gm.ID2ConsumerGroup, ID)
 }
-func NewGroupsManager(sessionLogoutNotifier SessionLogoutNotifier, check LeaderCheck) *GroupsManager {
+func NewGroupsManager(sessionLogoutNotifier SessionLogoutNotifier, check leaderCheck) *GroupsManager {
 	group := &GroupsManager{
-		IsStop:                false,
-		ID2ConsumerGroup:      make(map[string]*ConsumerGroup),
-		SessionLogoutNotifier: sessionLogoutNotifier,
-		LeaderCheck:           check,
+		IsStop:           false,
+		ID2ConsumerGroup: make(map[string]*ConsumerGroup),
+		offlineCall:      sessionLogoutNotifier,
+		leaderCheck:      check,
 	}
 	group.wg.Add(1)
 	go group.HeartbeatCheck()
@@ -283,6 +283,8 @@ func (cg *ConsumerGroup) ChangeState(state int) error {
 		if cg.Mode != ConsumerGroupChangeAndWaitCommit {
 			return Err.ErrRequestIllegal
 		}
+		cg.ConsumeOffsetLastTime = -1
+		cg.LastConsumeData = nil
 		cg.Mode = ConsumerGroupStart
 	case ConsumerGroupChangeAndWaitCommit:
 		if cg.Mode == ConsumerGroupToDel {
@@ -291,6 +293,12 @@ func (cg *ConsumerGroup) ChangeState(state int) error {
 		cg.Mode = ConsumerGroupChangeAndWaitCommit
 	case ConsumerGroupToDel:
 		cg.Mode = ConsumerGroupToDel
+	case ConsumerGroupNormal:
+		if cg.Mode != ConsumerGroupStart {
+			return Err.ErrRequestIllegal
+		} else {
+			cg.Mode = ConsumerGroupNormal
+		}
 	default:
 		return Err.ErrRequestIllegal
 	}
@@ -327,12 +335,13 @@ func (cg *ConsumerGroup) ChangeConsumer(newConsID string) error {
 		if cg.Consumers.Time < time.Now().UnixMilli() {
 			cg.Consumers = cg.WaitingConsumers
 			cg.ConsumeOffset = cg.ConsumeOffsetLastTime
+			cg.ConsumeOffsetLastTime = -1
 			cg.WaitingConsumers.TimeUpdate()
 			cg.Mode = ConsumerGroupStart
 			cg.WaitingConsumers = nil
 			return nil
 		}
-		return (Err.ErrNeedToWait)
+		return Err.ErrNeedToWait
 	}
 }
 
@@ -343,7 +352,7 @@ func NewConsumerGroup(groupId string, consumer *Consumer, consumeOff int64) *Con
 		Consumers:             consumer,
 		WaitingConsumers:      nil,
 		ConsumeOffset:         consumeOff,
-		ConsumeOffsetLastTime: 0,
+		ConsumeOffsetLastTime: -1,
 		LastConsumeData:       nil,
 	}
 }
@@ -429,7 +438,7 @@ func (gm *GroupsManager) HeartbeatCheck() {
 						Group.mu.Unlock()
 						gm.wg.Add(1)
 						go func() {
-							gm.CancelReg2Cluster(Cons)
+							gm.offlineCall.CancelReg2Cluster(Cons)
 							gm.wg.Done()
 						}()
 					}

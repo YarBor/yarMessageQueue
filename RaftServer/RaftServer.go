@@ -22,7 +22,7 @@ const (
 	ErrNodeDidNotStart = "node did not start"
 )
 
-var commitTimeout time.Duration = time.Millisecond * 500000000000
+var commitTimeout time.Duration = time.Millisecond * 500
 var RaftLogSize = 1024 * 1024 * 2
 
 const (
@@ -90,8 +90,8 @@ type RaftNode struct {
 	wg              sync.WaitGroup
 	commandIdOffset uint32
 
-	CommandHandler  CommandHandler
-	SnapshotHandler SnapshotHandler
+	commandHandler  CommandHandler
+	snapshotHandler SnapshotHandler
 }
 
 func (rn *RaftNode) IsAlive() bool {
@@ -121,7 +121,7 @@ func (rn *RaftNode) LinkPeerRpcServer(addr, id string) (*ClientEnd, error) {
 	res := &ClientEnd{
 		RaftCallClient: pb.NewRaftCallClient(conn),
 		ID:             id,
-		Rfn:            rn,
+		rfn:            rn,
 		Conn:           conn,
 	}
 	return res, nil
@@ -215,14 +215,14 @@ func (rn *RaftNode) CommandHandleFunc() {
 						Cmd: applyMsg.Command.(map[string]interface{})["Cmd"],
 					}
 				}
-				err, data := rn.CommandHandler.Handle(command.Cmd)
+				err, data := rn.commandHandler.Handle(command.Cmd)
 				rn.idMap.GetCallDelete(command.Id, err, data)
 				if rn.rf != nil && rn.Persistent.RaftStateSize() > RaftLogSize/2 {
-					bt := rn.SnapshotHandler.MakeSnapshot()
+					bt := rn.snapshotHandler.MakeSnapshot()
 					rn.rf.Snapshot(applyMsg.CommandIndex, bt)
 				}
 			} else if applyMsg.SnapshotValid {
-				rn.SnapshotHandler.LoadSnapshot(applyMsg.Snapshot)
+				rn.snapshotHandler.LoadSnapshot(applyMsg.Snapshot)
 			}
 		}
 	}
@@ -395,16 +395,22 @@ func (rs *RaftServer) RegisterRfNode(T, P string, ch CommandHandler, sh Snapshot
 		return nil, errors.New(UnKnownTopicPartition)
 	}
 	rn := RaftNode{
-		rf:              nil,
-		T:               T,
-		P:               P,
-		Peers:           make([]*ClientEnd, len(peers)),
-		me:              0,
-		ch:              make(chan ApplyMsg),
-		Persistent:      Persister.MakePersister(),
+		T:          T,
+		P:          P,
+		Peers:      make([]*ClientEnd, len(peers)),
+		me:         -1,
+		ch:         make(chan ApplyMsg),
+		Persistent: Persister.MakePersister(),
+		idMap: syncIdMap{
+			mu: sync.Mutex{},
+			Map: make(map[uint32]struct {
+				fn func(err error, data interface{})
+			}),
+		},
+		wg:              sync.WaitGroup{},
 		commandIdOffset: 0,
-		CommandHandler:  ch,
-		SnapshotHandler: sh,
+		commandHandler:  ch,
+		snapshotHandler: sh,
 	}
 	for i, n := range peers {
 		if n.Url == rs.Url {
@@ -446,7 +452,9 @@ func MakeRaftServer() (*RaftServer, error) {
 	return res, nil
 }
 
-func (rs *RaftServer) RegisterMetadataRaft(url_IDs []struct{ Url, ID string }, ch CommandHandler, sh SnapshotHandler) (*RaftNode, error) {
+func (rs *RaftServer) RegisterMetadataRaft(url_IDs []struct {
+	ID, Url string
+}, ch CommandHandler, sh SnapshotHandler) (*RaftNode, error) {
 	if atomic.LoadInt32(&rs.isRaftAddrSet) == 0 {
 		return nil, Err.ErrSourceNotExist
 	}
@@ -466,8 +474,8 @@ func (rs *RaftServer) RegisterMetadataRaft(url_IDs []struct{ Url, ID string }, c
 		},
 		wg:              sync.WaitGroup{},
 		commandIdOffset: 0,
-		CommandHandler:  ch,
-		SnapshotHandler: sh,
+		commandHandler:  ch,
+		snapshotHandler: sh,
 	}
 	for i, n := range url_IDs {
 		if n.Url == rs.Url {
@@ -476,7 +484,7 @@ func (rs *RaftServer) RegisterMetadataRaft(url_IDs []struct{ Url, ID string }, c
 		} else {
 			peer, _ := rn.LinkPeerRpcServer(n.Url, n.ID)
 			rn.Peers[i] = peer
-			rn.Peers[i].Rfn = &rn
+			rn.Peers[i].rfn = &rn
 		}
 	}
 	if rn.me == -1 {

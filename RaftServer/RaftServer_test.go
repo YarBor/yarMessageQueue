@@ -22,7 +22,7 @@ func TestMakeRaftServer(t *testing.T) {
 	ser.Stop()
 }
 
-func make3RaftServers(ip ...struct{ Url, ID string }) (ser1 *RaftServer, ser2 *RaftServer, ser3 *RaftServer) {
+func make3RaftServers(ip ...struct{ ID, Url string }) (ser1 *RaftServer, ser2 *RaftServer, ser3 *RaftServer) {
 	var err error
 	ser1, err = MakeRaftServer()
 	if err != nil {
@@ -83,10 +83,10 @@ func TestMakeRaftServer_1(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	data := []struct{ Url, ID string }{
-		{"127.0.0.1:10000", "0"},
-		{"127.0.0.1:10001", "1"},
-		{"127.0.0.1:10002", "2"},
+	data := []struct{ ID, Url string }{
+		{Url: "127.0.0.1:10000", ID: "0"},
+		{Url: "127.0.0.1:10001", ID: "1"},
+		{Url: "127.0.0.1:10002", ID: "2"},
 	}
 	s1, s2, s3 := make3RaftServers(data...)
 	t1 := testHandle{}
@@ -113,7 +113,11 @@ func TestMakeRaftServer_1(t *testing.T) {
 	println(node1)
 	println(node2)
 	println(node3)
-	time.Sleep(time.Second * 10)
+	time.Sleep(time.Second * 3)
+	node1.Commit("TestCommands")
+	node2.Commit("TestCommands")
+	node3.Commit("TestCommands")
+	time.Sleep(time.Second * 1)
 	s1.Stop()
 	s2.Stop()
 	s3.Stop()

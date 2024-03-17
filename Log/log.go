@@ -36,7 +36,10 @@ func _string(a interface{}) string {
 	if str, ok := a.(string); ok {
 		return str
 	}
-	data, _ := json.Marshal(a)
+	data, err := json.Marshal(a)
+	if err != nil {
+		panic(err)
+	}
 	return string(data)
 }
 func SetLogLevel(l int) error {

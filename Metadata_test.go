@@ -31,7 +31,7 @@ func (t *TestPartition) Handle(i interface{}) (error, interface{}) {
 }
 
 func MakeRaftServer(NodeINfO struct {
-	Url, ID string
+	ID, Url string
 }) *RaftServer.RaftServer {
 	ser, err := RaftServer.MakeRaftServer()
 	if err != nil {
@@ -42,7 +42,7 @@ func MakeRaftServer(NodeINfO struct {
 }
 
 func pullUpTestMetadataClusters(NodeINfO ...struct {
-	Url, ID string
+	ID, Url string
 }) []*MetaDataController {
 	res := make([]*MetaDataController, 0)
 	for _, info := range NodeINfO {
@@ -56,7 +56,9 @@ func pullUpTestMetadataClusters(NodeINfO ...struct {
 		//bk := NewBrokerMD(true, info.ID, info.Url, 50)
 		//bk.IsDisconnect = BrokerMode_BrokerConnected
 		controller := NewMetaDataController(bks...)
-		node, err1 := ser.RegisterMetadataRaft(append(make([]struct{ Url, ID string }, 0), NodeINfO...), controller, controller)
+		node, err1 := ser.RegisterMetadataRaft(append(make([]struct {
+			ID, Url string
+		}, 0), NodeINfO...), controller, controller)
 		if err1 != nil {
 			panic(err1)
 		} else {
@@ -79,11 +81,11 @@ func pullUpTestMetadataClusters(NodeINfO ...struct {
 
 var (
 	OneNodeINfO = struct {
-		Url, ID string
-	}{"127.0.0.1:20000", "wang"}
+		ID, Url string
+	}{"wang", "127.0.0.1:20000"}
 	ThreeNodeInfo = []struct {
-		Url, ID string
-	}{{"127.0.0.1:20001", "wang1"}, {"127.0.0.1:20002", "wang2"}, {"127.0.0.1:20003", "wang3"}}
+		ID, Url string
+	}{{"wang1", "127.0.0.1:20001"}, {"wang2", "127.0.0.1:20002"}, {"wang3", "127.0.0.1:20003"}}
 )
 
 func TestNewMetaDataController(t *testing.T) {
@@ -266,7 +268,7 @@ func PrintClusters(clusters []*MetaDataController) {
 	}
 }
 
-func TestMetaDataController_RegisterConsumer_Group_Reblance(t *testing.T) {
+func TestMetaDataController_RegisterConsumer_Group_Add_Leave_Reblance(t *testing.T) {
 	var (
 	//int1 = 1
 	)
@@ -402,4 +404,63 @@ success1:
 	})
 	assert.Equal(t, api.Response_Success, rres.Response.Mode)
 	PrintClusters(clusters)
+}
+
+func TestMetaDataController_Part_Add_Remove(t *testing.T) {
+	i := pullUpTestMetadataClusters(ThreeNodeInfo...)
+	time.Sleep(time.Second)
+	var leader *MetaDataController
+	for _, controller := range i {
+		res := controller.CreateTopic(&api.CreateTopicRequest{
+			Topic:     "currentTopic",
+			Partition: NewPartInfo([]int{1, 1, 2, 2}),
+		})
+		if res.Response.Mode == api.Response_Success {
+			leader = controller
+			goto done
+		}
+	}
+	t.Fatalf("Not Leader Comming")
+done:
+	cre := api.Credentials{
+		Identity: api.Credentials_Broker,
+		Id:       ThreeNodeInfo[0].ID,
+		Key:      "",
+	}
+	addPartRes := leader.AddPart(&api.AddPartRequest{
+		Cred: &cre,
+		Part: &api.Partition{
+			Topic:    "WrongTopic",
+			PartName: "ADDPART",
+			Brokers:  []*api.BrokerData{{Id: ThreeNodeInfo[0].ID, Url: ThreeNodeInfo[0].Url}}}},
+	)
+	assert.Equal(t, api.Response_ErrSourceNotExist, addPartRes.Response.Mode)
+	addPartRes = leader.AddPart(&api.AddPartRequest{
+		Cred: &cre,
+		Part: &api.Partition{
+			Topic:    "currentTopic",
+			PartName: "ADDPART",
+			Brokers:  []*api.BrokerData{{Id: ThreeNodeInfo[0].ID, Url: ThreeNodeInfo[0].Url}}}},
+	)
+	assert.Equal(t, api.Response_Success, addPartRes.Response.Mode)
+	addPartRes = leader.AddPart(&api.AddPartRequest{
+		Cred: &cre,
+		Part: &api.Partition{
+			Topic:    "currentTopic",
+			PartName: "ADDPART",
+			Brokers:  []*api.BrokerData{{Id: ThreeNodeInfo[0].ID, Url: ThreeNodeInfo[0].Url}}}},
+	)
+	assert.Equal(t, api.Response_ErrSourceAlreadyExist, addPartRes.Response.Mode)
+	removePartRes := leader.RemovePart(&api.RemovePartRequest{
+		Cred:  &cre,
+		Topic: "currentTopic",
+		Part:  "ADDPART-Wrong",
+	})
+	assert.Equal(t, api.Response_ErrSourceNotExist, removePartRes.Response.Mode)
+	removePartRes = leader.RemovePart(&api.RemovePartRequest{
+		Cred:  &cre,
+		Topic: "currentTopic",
+		Part:  "ADDPART",
+	})
+	assert.Equal(t, api.Response_Success, removePartRes.Response.Mode)
 }
