@@ -5,11 +5,11 @@ go 1.20
 replace github.com/apache/thrift => github.com/apache/thrift v0.13.0
 
 require (
+	dario.cat/mergo v1.0.0
 	github.com/stretchr/testify v1.8.2
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	google.golang.org/grpc v1.36.1
 	google.golang.org/protobuf v1.28.1
-	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -22,4 +22,5 @@ require (
 	golang.org/x/sys v0.0.0-20220817070843-5a390386f1f2 // indirect
 	golang.org/x/text v0.6.0 // indirect
 	google.golang.org/genproto v0.0.0-20210513213006-bf773b8c8384 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

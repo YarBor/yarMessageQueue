@@ -273,7 +273,7 @@ func newBroker(option *BrokerOptions) (*broker, error) {
 	i, ok := option.data["IsMetaDataServer"]
 
 	// metadata server
-	peers, ok1 := option.data["MetadataServerAddr"].(map[string]interface{})
+	peers, ok1 := option.data["MetadataServerInfo"].(map[string]interface{})
 	if !ok1 {
 		return nil, Err.ErrRequestIllegal
 	}
@@ -292,7 +292,15 @@ func newBroker(option *BrokerOptions) (*broker, error) {
 		bk.MetadataPeers[ID].Conn = conn
 		bk.MetadataPeers[ID].Client = api.NewMqServerCallClient(conn)
 		if ok && i.(bool) {
-			MDpeers = append(MDpeers, NewBrokerMD(true, Data.(map[string]interface{})["ID"].(string), Data.(map[string]interface{})["Url"].(string), Data.(map[string]interface{})["HeartBeatSession"].(int64)))
+			MDpeers = append(MDpeers, NewBrokerMD(true, ID, Data.(map[string]interface{})["Url"].(string), Data.(map[string]interface{})["HeartBeatSession"].(int64)))
+		}
+	}
+	bk.RaftServer, _ = RaftServer.MakeRaftServer()
+	// raft server
+	_RaftInfo := option.data["RaftServerAddr"].(map[string]interface{})
+	for k, v := range _RaftInfo {
+		if !bk.RaftServer.SetRaftServerInfo(k, v.(string)) {
+			return nil, Err.ErrRequestIllegal
 		}
 	}
 	if ok {
@@ -309,20 +317,13 @@ func newBroker(option *BrokerOptions) (*broker, error) {
 		}
 		bk.MetaDataController.MetaDataRaft = node
 	}
-	bk.RaftServer, _ = RaftServer.MakeRaftServer()
-	// raft server
-	_RaftInfo := option.data["RaftServerAddr"].(map[string]interface{})
-	for k, v := range _RaftInfo {
-		if !bk.RaftServer.SetRaftServerInfo(k, v.(string)) {
-			return nil, Err.ErrRequestIllegal
-		}
-	}
 
 	return bk, nil
 }
+
 func (s *broker) feasibilityTest() error {
-	if s.ID == "" || s.Url == "" || s.Key == "" || s.MetadataPeers == nil {
-		return (Err.ErrRequestIllegal)
+	if s.ID == "" || s.Url == "" || s.Key == "" || s.MetadataPeers == nil || len(s.MetadataPeers) == 0 {
+		return Err.ErrRequestIllegal
 	}
 	return nil
 }
