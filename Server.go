@@ -5,10 +5,11 @@ import (
 	"MqServer/Err"
 	Log "MqServer/Log"
 	"MqServer/RaftServer"
-	pb "MqServer/api"
+	"MqServer/api"
+	"MqServer/common"
 	"context"
 	"google.golang.org/grpc"
-	"math"
+	//"math"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -26,14 +27,15 @@ type Server interface {
 //}
 
 type brokerPeer struct {
-	Client pb.MqServerCallClient
+	Client api.MqServerCallClient
 	Conn   *grpc.ClientConn
 	ID     string
 	Url    string
 }
 
 type broker struct {
-	pb.UnimplementedMqServerCallServer
+	api.UnimplementedMqServerCallServer
+	Config                   *BrokerOptions
 	RaftServer               *RaftServer.RaftServer
 	Url                      string
 	ID                       string
@@ -70,11 +72,11 @@ func (s *broker) CheckProducerTimeout() {
 	}
 }
 
-func MakeMqServer(opt ...BrokerOption) (Server, error) {
-	i, err := newBroker(opt...)
-	s := Server(i)
-	return s, err
-}
+//func MakeMqServer(opt ...BuildOptions) (Server, error) {
+//	i, err := newBroker(opt...)
+//	s := Server(i)
+//	return s, err
+//}
 
 func (s *broker) goSendHeartbeat() {
 	defer s.wg.Done()
@@ -84,10 +86,10 @@ func (s *broker) goSendHeartbeat() {
 				if !s.IsStop {
 					return
 				}
-				req := pb.MQHeartBeatData{
+				req := api.MQHeartBeatData{
 					BrokerData:         MqCredentials,
-					CheckTopic:         &pb.MQHeartBeatDataTpKv{TopicTerm: make(map[string]int32)},
-					CheckConsumerGroup: &pb.MQHeartBeatDataCgKv{ConsumerGroup: make(map[string]int32)},
+					CheckTopic:         &api.MQHeartBeatDataTpKv{TopicTerm: make(map[string]int32)},
+					CheckConsumerGroup: &api.MQHeartBeatDataCgKv{ConsumerGroup: make(map[string]int32)},
 				}
 				//bk.PartitionsController.cgtMu.RLock()
 				//for s, i := range bk.PartitionsController.ConsumerGroupTerm {
@@ -128,14 +130,14 @@ func (s *broker) goSendHeartbeat() {
 				} else {
 					s.MetadataLeaderID.Store(&ID)
 				}
-				if res.Response.Mode != pb.Response_Success {
+				if res.Response.Mode != api.Response_Success {
 					if res.ChangedTopic != nil {
 						for Tp, _ := range res.ChangedTopic.TopicTerm {
 							tp := Tp
 							s.wg.Add(1)
 							go func() {
 								defer s.wg.Done()
-								res, err := s.CheckSourceTermCall(context.Background(), &pb.CheckSourceTermRequest{Self: MqCredentials, TopicData: &pb.CheckSourceTermRequest_TopicCheck{Topic: tp, TopicTerm: -1}, ConsumerData: nil})
+								res, err := s.CheckSourceTermCall(context.Background(), &api.CheckSourceTermRequest{Self: MqCredentials, TopicData: &api.CheckSourceTermRequest_TopicCheck{Topic: tp, TopicTerm: -1}, ConsumerData: nil})
 								if err == nil {
 									err = s.PartitionsController.UpdateTp(tp, res)
 									if err != nil {
@@ -152,10 +154,10 @@ func (s *broker) goSendHeartbeat() {
 							s.wg.Add(1)
 							go func() {
 								defer s.wg.Done()
-								res, err := s.CheckSourceTermCall(context.Background(), &pb.CheckSourceTermRequest{
+								res, err := s.CheckSourceTermCall(context.Background(), &api.CheckSourceTermRequest{
 									Self:      MqCredentials,
 									TopicData: nil,
-									ConsumerData: &pb.CheckSourceTermRequest_ConsumerCheck{
+									ConsumerData: &api.CheckSourceTermRequest_ConsumerCheck{
 										ConsumerId: nil,
 										GroupID:    groupID,
 										GroupTerm:  -1,
@@ -186,12 +188,11 @@ func (s *broker) Serve() error {
 	if err != nil {
 		return err
 	}
-	err = s.RaftServer.Serve()
-	if err != nil {
-		return err
-	}
+	go s.RaftServer.Serve()
+
 	if s.MetaDataController != nil {
 		s.MetaDataController.MetaDataRaft.Start()
+		_ = s.MetaDataController.Start()
 	}
 	s.wg.Add(3)
 	go s.CheckProducerTimeout()
@@ -215,15 +216,15 @@ func (s *broker) CancelReg2Cluster(consumer *ConsumerGroup.Consumer) {
 	f, set := s.GetMetadataServers()
 	for {
 		cc := f()
-		res, err := cc.Client.ConsumerDisConnect(context.Background(), &pb.DisConnectInfo{
+		res, err := cc.Client.ConsumerDisConnect(context.Background(), &api.DisConnectInfo{
 			BrokerInfo: MqCredentials,
-			TargetInfo: &pb.Credentials{
-				Identity: pb.Credentials_Consumer,
+			TargetInfo: &api.Credentials{
+				Identity: api.Credentials_Consumer,
 				Id:       consumer.SelfId,
 				Key:      s.Key,
 			},
 		})
-		if err != nil || res.Mode != pb.Response_Success {
+		if err != nil || res.Mode != api.Response_Success {
 			Log.WARN("CancelReg2Cluster Call False")
 			continue
 		} else {
@@ -233,7 +234,7 @@ func (s *broker) CancelReg2Cluster(consumer *ConsumerGroup.Consumer) {
 	}
 }
 
-var MqCredentials *pb.Credentials
+var MqCredentials *api.Credentials
 
 // for option call
 func (s *broker) registerRaftNode() (err error) {
@@ -248,34 +249,75 @@ func (s *broker) registerRaftNode() (err error) {
 	return err
 }
 
-func newBroker(option ...BrokerOption) (*broker, error) {
-	var err error
+func newBroker(option *BrokerOptions) (*broker, error) {
+	//var err error
 	bk := &broker{
-		UnimplementedMqServerCallServer: pb.UnimplementedMqServerCallServer{},
+		Config:                          option,
+		UnimplementedMqServerCallServer: api.UnimplementedMqServerCallServer{},
+		RaftServer:                      nil,
+		Url:                             option.data["BrokerAddr"].(string),
+		ID:                              option.data["BrokerID"].(string),
+		Key:                             option.data["BrokerKey"].(string),
+		CacheStayTimeMs:                 int32(common.CacheStayTime_Ms),
 		MetadataLeaderID:                atomic.Value{},
-		MetadataPeers:                   nil,
+		MetadataPeers:                   make(map[string]*brokerPeer),
+		ProducerIDCache:                 sync.Map{},
 		MetaDataController:              nil,
+		PartitionsController:            nil, // TODO:
+		IsStop:                          false,
+		wg:                              sync.WaitGroup{},
+		RequestTimeoutSessionsMs:        int32(common.MQRequestTimeoutSessions_Ms),
+		HeartBeatSessionsMs:             int32(common.RaftHeartbeatTimeout),
 	}
-	bk.MetadataLeaderID.Store(new(string))
-	if err != nil {
-		return nil, err
+
+	i, ok := option.data["IsMetaDataServer"]
+
+	// metadata server
+	peers, ok1 := option.data["MetadataServerAddr"].(map[string]interface{})
+	if !ok1 {
+		return nil, Err.ErrRequestIllegal
 	}
-	for _, brokerOption := range option {
-		err = brokerOption(bk)
+	MDpeers := []*BrokerMD{}
+	for ID, Data := range peers {
+		bk.MetadataPeers[ID] = &brokerPeer{
+			Client: nil,
+			Conn:   nil,
+			ID:     ID,
+			Url:    Data.(map[string]interface{})["Url"].(string),
+		}
+		conn, err := grpc.Dial(bk.MetadataPeers[ID].Url, grpc.WithInsecure())
 		if err != nil {
 			return nil, err
 		}
+		bk.MetadataPeers[ID].Conn = conn
+		bk.MetadataPeers[ID].Client = api.NewMqServerCallClient(conn)
+		if ok && i.(bool) {
+			MDpeers = append(MDpeers, NewBrokerMD(true, Data.(map[string]interface{})["ID"].(string), Data.(map[string]interface{})["Url"].(string), Data.(map[string]interface{})["HeartBeatSession"].(int64)))
+		}
 	}
-	bk.RaftServer, err = RaftServer.MakeRaftServer()
-	bk.PartitionsController = NewPartitionsController(bk.RaftServer, bk)
-	if err = bk.feasibilityTest(); err != nil {
-		return nil, err
+	if ok {
+		bk.MetaDataController = NewMetaDataController(MDpeers...)
+		d := make([]struct {
+			ID, Url string
+		}, 0)
+		for _, dpeer := range MDpeers {
+			d = append(d, struct{ ID, Url string }{ID: dpeer.ID, Url: dpeer.Url})
+		}
+		node, err := bk.RaftServer.RegisterMetadataRaft(d, bk.MetaDataController, bk.MetaDataController)
+		if err != nil {
+			return nil, err
+		}
+		bk.MetaDataController.MetaDataRaft = node
 	}
-	MqCredentials = &pb.Credentials{
-		Identity: pb.Credentials_Broker,
-		Id:       bk.ID,
-		Key:      bk.Key,
+	bk.RaftServer, _ = RaftServer.MakeRaftServer()
+	// raft server
+	_RaftInfo := option.data["RaftServerAddr"].(map[string]interface{})
+	for k, v := range _RaftInfo {
+		if !bk.RaftServer.SetRaftServerInfo(k, v.(string)) {
+			return nil, Err.ErrRequestIllegal
+		}
 	}
+
 	return bk, nil
 }
 func (s *broker) feasibilityTest() error {
@@ -284,11 +326,6 @@ func (s *broker) feasibilityTest() error {
 	}
 	return nil
 }
-
-var (
-	defaultMaxEntries = uint64(math.MaxUint64)
-	defaultMaxSize    = uint64(math.MaxUint64)
-)
 
 func (s *broker) GetMetadataServers() (func() *brokerPeer, func()) {
 	i := -2
@@ -318,14 +355,14 @@ func (s *broker) GetMetadataServers() (func() *brokerPeer, func()) {
 
 // 客户端和server之间的心跳
 // 注册消费者
-func (s *broker) RegisterConsumer(_ context.Context, req *pb.RegisterConsumerRequest) (*pb.RegisterConsumerResponse, error) {
+func (s *broker) RegisterConsumer(_ context.Context, req *api.RegisterConsumerRequest) (*api.RegisterConsumerResponse, error) {
 	if s.MetaDataController == nil {
-		return &pb.RegisterConsumerResponse{
+		return &api.RegisterConsumerResponse{
 			Response: ResponseErrNotLeader(),
 		}, nil
 	}
 	res := s.MetaDataController.RegisterConsumer(req)
-	if res.Response.Mode == pb.Response_Success {
+	if res.Response.Mode == api.Response_Success {
 		res.Credential.Key = s.Key
 	}
 	return res, nil
@@ -346,47 +383,47 @@ func (s *broker) RegisterConsumer(_ context.Context, req *pb.RegisterConsumerReq
 //	pb.RegisterMqServerCallServer(newServer, &b)
 //}
 
-func (s *broker) SubscribeTopic(_ context.Context, req *pb.SubscribeTopicRequest) (*pb.SubscribeTopicResponse, error) {
+func (s *broker) SubscribeTopic(_ context.Context, req *api.SubscribeTopicRequest) (*api.SubscribeTopicResponse, error) {
 	if s.MetaDataController == nil {
-		return &pb.SubscribeTopicResponse{
+		return &api.SubscribeTopicResponse{
 			Response: ResponseErrNotLeader(),
 		}, nil
 	}
 	return s.MetaDataController.AddTopicRegisterConsumerGroup(req), nil
 }
-func (s *broker) UnSubscribeTopic(_ context.Context, req *pb.UnSubscribeTopicRequest) (*pb.UnSubscribeTopicResponse, error) {
+func (s *broker) UnSubscribeTopic(_ context.Context, req *api.UnSubscribeTopicRequest) (*api.UnSubscribeTopicResponse, error) {
 	if s.MetaDataController == nil {
-		return &pb.UnSubscribeTopicResponse{
+		return &api.UnSubscribeTopicResponse{
 			Response: ResponseErrNotLeader(),
 		}, nil
 	}
 	return s.MetaDataController.DelTopicRegisterConsumerGroup(req), nil
 }
-func (s *broker) AddPart(_ context.Context, req *pb.AddPartRequest) (*pb.AddPartResponse, error) {
+func (s *broker) AddPart(_ context.Context, req *api.AddPartRequest) (*api.AddPartResponse, error) {
 	if s.MetaDataController == nil {
-		return &pb.AddPartResponse{
+		return &api.AddPartResponse{
 			Response: ResponseErrNotLeader(),
 		}, nil
 	}
 	return s.MetaDataController.AddPart(req), nil
 }
-func (s *broker) RemovePart(_ context.Context, req *pb.RemovePartRequest) (*pb.RemovePartResponse, error) {
+func (s *broker) RemovePart(_ context.Context, req *api.RemovePartRequest) (*api.RemovePartResponse, error) {
 	if s.MetaDataController == nil {
-		return &pb.RemovePartResponse{
+		return &api.RemovePartResponse{
 			Response: ResponseErrNotLeader(),
 		}, nil
 	}
 	return s.MetaDataController.RemovePart(req), nil
 }
 
-func (s *broker) ConsumerDisConnect(_ context.Context, req *pb.DisConnectInfo) (*pb.Response, error) {
+func (s *broker) ConsumerDisConnect(_ context.Context, req *api.DisConnectInfo) (*api.Response, error) {
 	if s.MetaDataController == nil {
 		return ResponseErrNotLeader(), nil
 	}
 	return s.MetaDataController.ConsumerDisConnect(req), nil
 }
 
-func (s *broker) ProducerDisConnect(_ context.Context, req *pb.DisConnectInfo) (*pb.Response, error) {
+func (s *broker) ProducerDisConnect(_ context.Context, req *api.DisConnectInfo) (*api.Response, error) {
 	if s.MetaDataController == nil {
 		return ResponseErrNotLeader(), nil
 	}
@@ -394,23 +431,23 @@ func (s *broker) ProducerDisConnect(_ context.Context, req *pb.DisConnectInfo) (
 }
 
 // 注册生产者
-func (s *broker) RegisterProducer(_ context.Context, req *pb.RegisterProducerRequest) (*pb.RegisterProducerResponse, error) {
+func (s *broker) RegisterProducer(_ context.Context, req *api.RegisterProducerRequest) (*api.RegisterProducerResponse, error) {
 	if s.MetaDataController == nil {
-		return &pb.RegisterProducerResponse{
+		return &api.RegisterProducerResponse{
 			Response: ResponseErrNotLeader(),
 		}, nil
 	}
 	res := s.MetaDataController.RegisterProducer(req)
-	if res.Response.Mode == pb.Response_Success {
+	if res.Response.Mode == api.Response_Success {
 		res.Credential.Key = s.Key
 	}
 	return res, nil
 }
 
 // 创建话题
-func (s *broker) CreateTopic(_ context.Context, req *pb.CreateTopicRequest) (*pb.CreateTopicResponse, error) {
+func (s *broker) CreateTopic(_ context.Context, req *api.CreateTopicRequest) (*api.CreateTopicResponse, error) {
 	if s.MetaDataController == nil {
-		return &pb.CreateTopicResponse{
+		return &api.CreateTopicResponse{
 			Response: ResponseErrNotLeader(),
 		}, nil
 	}
@@ -420,9 +457,9 @@ func (s *broker) CreateTopic(_ context.Context, req *pb.CreateTopicRequest) (*pb
 	}
 	return res, nil
 }
-func (s *broker) QueryTopic(_ context.Context, req *pb.QueryTopicRequest) (*pb.QueryTopicResponse, error) {
+func (s *broker) QueryTopic(_ context.Context, req *api.QueryTopicRequest) (*api.QueryTopicResponse, error) {
 	if s.MetaDataController == nil {
-		return &pb.QueryTopicResponse{
+		return &api.QueryTopicResponse{
 			Response: ResponseErrNotLeader(),
 		}, nil
 	}
@@ -434,9 +471,9 @@ func (s *broker) QueryTopic(_ context.Context, req *pb.QueryTopicRequest) (*pb.Q
 }
 
 // 注销
-func (s *broker) UnRegisterConsumer(_ context.Context, req *pb.UnRegisterConsumerRequest) (*pb.UnRegisterConsumerResponse, error) {
+func (s *broker) UnRegisterConsumer(_ context.Context, req *api.UnRegisterConsumerRequest) (*api.UnRegisterConsumerResponse, error) {
 	if s.MetaDataController == nil {
-		return &pb.UnRegisterConsumerResponse{
+		return &api.UnRegisterConsumerResponse{
 			Response: ResponseErrNotLeader(),
 		}, nil
 	}
@@ -447,9 +484,9 @@ func (s *broker) UnRegisterConsumer(_ context.Context, req *pb.UnRegisterConsume
 	return res, nil
 }
 
-func (s *broker) UnRegisterProducer(_ context.Context, req *pb.UnRegisterProducerRequest) (*pb.UnRegisterProducerResponse, error) {
+func (s *broker) UnRegisterProducer(_ context.Context, req *api.UnRegisterProducerRequest) (*api.UnRegisterProducerResponse, error) {
 	if s.MetaDataController == nil {
-		return &pb.UnRegisterProducerResponse{
+		return &api.UnRegisterProducerResponse{
 			Response: ResponseErrNotLeader(),
 		}, nil
 	}
@@ -460,9 +497,9 @@ func (s *broker) UnRegisterProducer(_ context.Context, req *pb.UnRegisterProduce
 	return res, nil
 }
 
-func (s *broker) JoinConsumerGroup(_ context.Context, req *pb.JoinConsumerGroupRequest) (*pb.JoinConsumerGroupResponse, error) {
+func (s *broker) JoinConsumerGroup(_ context.Context, req *api.JoinConsumerGroupRequest) (*api.JoinConsumerGroupResponse, error) {
 	if s.MetaDataController == nil {
-		return &pb.JoinConsumerGroupResponse{
+		return &api.JoinConsumerGroupResponse{
 			Response: ResponseErrNotLeader(),
 		}, nil
 	}
@@ -473,9 +510,9 @@ func (s *broker) JoinConsumerGroup(_ context.Context, req *pb.JoinConsumerGroupR
 	return res, nil
 }
 
-func (s *broker) LeaveConsumerGroup(_ context.Context, req *pb.LeaveConsumerGroupRequest) (*pb.LeaveConsumerGroupResponse, error) {
+func (s *broker) LeaveConsumerGroup(_ context.Context, req *api.LeaveConsumerGroupRequest) (*api.LeaveConsumerGroupResponse, error) {
 	if s.MetaDataController == nil {
-		return &pb.LeaveConsumerGroupResponse{
+		return &api.LeaveConsumerGroupResponse{
 			Response: ResponseErrNotLeader(),
 		}, nil
 	}
@@ -486,9 +523,9 @@ func (s *broker) LeaveConsumerGroup(_ context.Context, req *pb.LeaveConsumerGrou
 	return res, nil
 }
 
-func (s *broker) CheckSourceTerm(_ context.Context, req *pb.CheckSourceTermRequest) (*pb.CheckSourceTermResponse, error) {
+func (s *broker) CheckSourceTerm(_ context.Context, req *api.CheckSourceTermRequest) (*api.CheckSourceTermResponse, error) {
 	if s.MetaDataController == nil {
-		return &pb.CheckSourceTermResponse{
+		return &api.CheckSourceTermResponse{
 			Response: ResponseErrNotLeader(),
 		}, nil
 	}
@@ -502,9 +539,9 @@ func (s *broker) CheckSourceTerm(_ context.Context, req *pb.CheckSourceTermReque
 //	return nil, nil
 //}
 
-func (s *broker) RegisterConsumerGroup(_ context.Context, req *pb.RegisterConsumerGroupRequest) (*pb.RegisterConsumerGroupResponse, error) {
+func (s *broker) RegisterConsumerGroup(_ context.Context, req *api.RegisterConsumerGroupRequest) (*api.RegisterConsumerGroupResponse, error) {
 	if s.MetaDataController == nil {
-		return &pb.RegisterConsumerGroupResponse{
+		return &api.RegisterConsumerGroupResponse{
 			Response: ResponseErrNotLeader(),
 		}, nil
 	} //TODO:
@@ -515,60 +552,60 @@ func (s *broker) RegisterConsumerGroup(_ context.Context, req *pb.RegisterConsum
 	return res, nil
 }
 
-func ResponseErrNeedToWait() *pb.Response {
-	return &pb.Response{Mode: pb.Response_ErrNeedToWait}
+func ResponseErrNeedToWait() *api.Response {
+	return &api.Response{Mode: api.Response_ErrNeedToWait}
 }
-func ResponseFailure() *pb.Response {
-	return &pb.Response{Mode: pb.Response_Failure}
+func ResponseFailure() *api.Response {
+	return &api.Response{Mode: api.Response_Failure}
 }
-func ResponseErrTimeout() *pb.Response {
-	return &pb.Response{Mode: pb.Response_ErrTimeout}
+func ResponseErrTimeout() *api.Response {
+	return &api.Response{Mode: api.Response_ErrTimeout}
 }
-func ResponseErrNotLeader() *pb.Response {
-	return &pb.Response{Mode: pb.Response_ErrNotLeader}
+func ResponseErrNotLeader() *api.Response {
+	return &api.Response{Mode: api.Response_ErrNotLeader}
 }
-func ResponseErrSourceNotExist() *pb.Response {
-	return &pb.Response{Mode: pb.Response_ErrSourceNotExist}
+func ResponseErrSourceNotExist() *api.Response {
+	return &api.Response{Mode: api.Response_ErrSourceNotExist}
 }
-func ResponseErrSourceAlreadyExist() *pb.Response {
-	return &pb.Response{Mode: pb.Response_ErrSourceAlreadyExist}
+func ResponseErrSourceAlreadyExist() *api.Response {
+	return &api.Response{Mode: api.Response_ErrSourceAlreadyExist}
 }
-func ResponseErrPartitionChanged() *pb.Response {
-	return &pb.Response{Mode: pb.Response_ErrPartitionChanged}
+func ResponseErrPartitionChanged() *api.Response {
+	return &api.Response{Mode: api.Response_ErrPartitionChanged}
 }
-func ResponseErrRequestIllegal() *pb.Response {
-	return &pb.Response{Mode: pb.Response_ErrRequestIllegal}
+func ResponseErrRequestIllegal() *api.Response {
+	return &api.Response{Mode: api.Response_ErrRequestIllegal}
 }
-func ResponseErrSourceNotEnough() *pb.Response {
-	return &pb.Response{Mode: pb.Response_ErrSourceNotEnough}
+func ResponseErrSourceNotEnough() *api.Response {
+	return &api.Response{Mode: api.Response_ErrSourceNotEnough}
 }
 
-func ResponseSuccess() *pb.Response {
-	return &pb.Response{Mode: pb.Response_Success}
+func ResponseSuccess() *api.Response {
+	return &api.Response{Mode: api.Response_Success}
 }
-func ResponseNotServer() *pb.Response {
-	return &pb.Response{Mode: pb.Response_NotServe}
+func ResponseNotServer() *api.Response {
+	return &api.Response{Mode: api.Response_NotServe}
 }
 
 // TODO: Need Part To Confirm
 
-func (s *broker) ConfirmIdentity(_ context.Context, req *pb.ConfirmIdentityRequest) (*pb.ConfirmIdentityResponse, error) {
+func (s *broker) ConfirmIdentity(_ context.Context, req *api.ConfirmIdentityRequest) (*api.ConfirmIdentityResponse, error) {
 	if s.MetaDataController == nil {
-		return &pb.ConfirmIdentityResponse{
+		return &api.ConfirmIdentityResponse{
 			Response: ResponseErrNotLeader(),
 		}, nil
 	} else {
 		err := s.MetaDataController.ConfirmIdentity(req.CheckIdentity)
-		return &pb.ConfirmIdentityResponse{Response: ErrToResponse(err)}, nil
+		return &api.ConfirmIdentityResponse{Response: ErrToResponse(err)}, nil
 	}
 }
 
 // TODO complete PULL PUSH HEARTBEAT
 
 // 拉取消息
-func (s *broker) PullMessage(ctx context.Context, req *pb.PullMessageRequest) (*pb.PullMessageResponse, error) {
+func (s *broker) PullMessage(ctx context.Context, req *api.PullMessageRequest) (*api.PullMessageResponse, error) {
 	if req.Group == nil || req.Self == nil || req.Group.Key != s.Key || req.Self.Key != s.Key {
-		return &pb.PullMessageResponse{Response: ResponseErrRequestIllegal(), Msgs: nil}, nil
+		return &api.PullMessageResponse{Response: ResponseErrRequestIllegal(), Msgs: nil}, nil
 	}
 	s.PartitionsController.cgtMu.RLock()
 	gt, ok := s.PartitionsController.ConsumerGroupTerm[req.Group.Id]
@@ -581,58 +618,58 @@ func (s *broker) PullMessage(ctx context.Context, req *pb.PullMessageRequest) (*
 	}
 	// term check
 	if term < req.GroupTerm {
-		res, err := s.CheckSourceTermCall(ctx, &pb.CheckSourceTermRequest{
+		res, err := s.CheckSourceTermCall(ctx, &api.CheckSourceTermRequest{
 			Self:      MqCredentials,
 			TopicData: nil,
-			ConsumerData: &pb.CheckSourceTermRequest_ConsumerCheck{
+			ConsumerData: &api.CheckSourceTermRequest_ConsumerCheck{
 				ConsumerId: &req.Self.Id,
 				GroupID:    req.Group.Id,
 				GroupTerm:  term,
 			},
 		})
 		if err != nil {
-			return &pb.PullMessageResponse{Response: ErrToResponse(err)}, nil
+			return &api.PullMessageResponse{Response: ErrToResponse(err)}, nil
 		} else {
 			err = s.PartitionsController.UpdateCg(req.Group.Id, res)
 			if err != nil {
-				return &pb.PullMessageResponse{Response: ErrToResponse(err)}, nil
+				return &api.PullMessageResponse{Response: ErrToResponse(err)}, nil
 			}
 			// Go Recheck
 			s.PartitionsController.cgtMu.RLock()
 			gt, ok = s.PartitionsController.ConsumerGroupTerm[req.Group.Id]
 			s.PartitionsController.cgtMu.RUnlock()
 			if !ok {
-				return &pb.PullMessageResponse{Response: ResponseErrSourceNotExist()}, nil
+				return &api.PullMessageResponse{Response: ResponseErrSourceNotExist()}, nil
 			} else if atomic.LoadInt32(gt) > req.GroupTerm {
-				return &pb.PullMessageResponse{Response: ResponseErrPartitionChanged()}, nil
+				return &api.PullMessageResponse{Response: ResponseErrPartitionChanged()}, nil
 			}
 		}
 	} else if term > req.GroupTerm {
-		return &pb.PullMessageResponse{Response: ResponseErrPartitionChanged()}, nil
+		return &api.PullMessageResponse{Response: ResponseErrPartitionChanged()}, nil
 	}
 
 	// part commit And read
 	p, err := s.PartitionsController.GetPart(req.Topic, req.Part)
 	if err != nil {
-		return &pb.PullMessageResponse{Response: ResponseErrSourceNotExist()}, nil
+		return &api.PullMessageResponse{Response: ResponseErrSourceNotExist()}, nil
 	}
 	//s.RaftServer. // TODO Raft
 	data, ReadBeginOffset, _, IsAllow2Del, errRead := p.Read(req.Self.Id, req.Group.Id, req.LastTimeOffset, req.ReadEntryNum)
 	if errRead != nil {
-		return &pb.PullMessageResponse{
+		return &api.PullMessageResponse{
 			Response: ErrToResponse(errRead),
 		}, nil
 	} else {
-		return &pb.PullMessageResponse{
+		return &api.PullMessageResponse{
 			Response:      ResponseSuccess(),
 			MessageOffset: ReadBeginOffset,
-			Msgs:          &pb.Message{Message: data},
+			Msgs:          &api.Message{Message: data},
 			IsCouldToDel:  IsAllow2Del,
 		}, nil
 	}
 
 }
-func (s *broker) checkProducer(cxt context.Context, Credential *pb.Credentials) error {
+func (s *broker) checkProducer(cxt context.Context, Credential *api.Credentials) error {
 	if Credential == nil {
 		return Err.ErrRequestIllegal
 	}
@@ -645,13 +682,13 @@ func (s *broker) checkProducer(cxt context.Context, Credential *pb.Credentials) 
 			default:
 			}
 			cc := f()
-			res, err := cc.Client.ConfirmIdentity(cxt, &pb.ConfirmIdentityRequest{
+			res, err := cc.Client.ConfirmIdentity(cxt, &api.ConfirmIdentityRequest{
 				Self:          MqCredentials,
 				CheckIdentity: Credential,
 			})
 			if err != nil {
 				Log.ERROR("Call False:", err.Error())
-			} else if res.Response.Mode != pb.Response_Success {
+			} else if res.Response.Mode != api.Response_Success {
 				set()
 				break
 			} else {
@@ -663,7 +700,7 @@ func (s *broker) checkProducer(cxt context.Context, Credential *pb.Credentials) 
 	return nil
 }
 
-func (s *broker) CheckSourceTermCall(ctx context.Context, req *pb.CheckSourceTermRequest) (res *pb.CheckSourceTermResponse, err error) {
+func (s *broker) CheckSourceTermCall(ctx context.Context, req *api.CheckSourceTermRequest) (res *api.CheckSourceTermResponse, err error) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -676,7 +713,7 @@ func (s *broker) CheckSourceTermCall(ctx context.Context, req *pb.CheckSourceTer
 			if err != nil {
 				Log.ERROR("Call False:", err.Error())
 			} else {
-				if res.Response.Mode == pb.Response_Success {
+				if res.Response.Mode == api.Response_Success {
 					set()
 					return res, nil
 				} else {
@@ -687,8 +724,8 @@ func (s *broker) CheckSourceTermCall(ctx context.Context, req *pb.CheckSourceTer
 	}
 }
 
-func (p *PartitionsController) UpdateCg(CgId string, req *pb.CheckSourceTermResponse) error {
-	if req.Response.Mode != pb.Response_Success || req.ConsumersData == nil {
+func (p *PartitionsController) UpdateCg(CgId string, req *api.CheckSourceTermResponse) error {
+	if req.Response.Mode != api.Response_Success || req.ConsumersData == nil {
 		return Err.ErrRequestIllegal
 	}
 	p.cgtMu.RLock()
@@ -740,15 +777,15 @@ func (p *PartitionsController) UpdateCg(CgId string, req *pb.CheckSourceTermResp
 					for _, data := range part.Part.Brokers {
 						peers = append(peers, struct{ ID, Url string }{data.Id, data.Url})
 					}
-					getPart, _ = p.RegisterPart(part.Part.Topic, part.Part.PartName, defaultMaxEntries, defaultMaxSize, peers...)
+					getPart, _ = p.RegisterPart(part.Part.Topic, part.Part.PartName, uint64(common.PartDefaultMaxEntries), uint64(common.PartDefaultMaxSize), peers...)
 				}
 				g, err := getPart.ConsumerGroupManager.GetConsumerGroup(CgId)
 				if err != nil {
 					var Off int64
 					switch *req.ConsumerGroupOption {
-					case pb.RegisterConsumerGroupRequest_Earliest:
+					case api.RegisterConsumerGroupRequest_Earliest:
 						Off = getPart.MessageEntry.GetBeginOffset()
-					case pb.RegisterConsumerGroupRequest_Latest:
+					case api.RegisterConsumerGroupRequest_Latest:
 						Off = getPart.MessageEntry.GetEndOffset()
 					}
 					g, err = getPart.registerConsumerGroup(CgId, ConsumerGroup.NewConsumer(*part.ConsumerID,
@@ -771,9 +808,9 @@ func (p *PartitionsController) UpdateCg(CgId string, req *pb.CheckSourceTermResp
 	return nil
 }
 
-func (p *PartitionsController) UpdateTp(t string, UpdateReq *pb.CheckSourceTermResponse) error {
+func (p *PartitionsController) UpdateTp(t string, UpdateReq *api.CheckSourceTermResponse) error {
 	// 检查响应模式是否为成功，以及 TopicData 是否为 nil
-	if UpdateReq.Response.Mode != pb.Response_Success || UpdateReq.TopicData == nil || UpdateReq.TopicData.FcParts == nil {
+	if UpdateReq.Response.Mode != api.Response_Success || UpdateReq.TopicData == nil || UpdateReq.TopicData.FcParts == nil {
 		return Err.ErrRequestIllegal
 	}
 
@@ -859,7 +896,7 @@ func (p *PartitionsController) UpdateTp(t string, UpdateReq *pb.CheckSourceTermR
 				}
 				// 如果旧的 Partition 不存在，则创建一个新的 Partition 并添加到 NewP 中
 				var err error
-				NewP[part.Part.PartName], err = newPartition(part.Part.Topic, part.Part.PartName, defaultMaxEntries, defaultMaxSize, p.handleTimeout, p.rfServer, peers...)
+				NewP[part.Part.PartName], err = newPartition(part.Part.Topic, part.Part.PartName, uint64(common.PartDefaultMaxEntries), uint64(common.PartDefaultMaxSize), p.handleTimeout, p.rfServer, peers...)
 				if err != nil {
 					Log.ERROR("createPartition failed during updatePartition")
 				}
@@ -903,24 +940,24 @@ func (p *PartitionsController) UpdateTp(t string, UpdateReq *pb.CheckSourceTermR
 }
 
 // 推送消息
-func (s *broker) PushMessage(ctx context.Context, req *pb.PushMessageRequest) (*pb.PushMessageResponse, error) {
+func (s *broker) PushMessage(ctx context.Context, req *api.PushMessageRequest) (*api.PushMessageResponse, error) {
 	// TODO:
 	if req.Credential.Key != s.Key {
-		return &pb.PushMessageResponse{Response: ResponseErrRequestIllegal()}, nil
+		return &api.PushMessageResponse{Response: ResponseErrRequestIllegal()}, nil
 	}
 	err := s.checkProducer(ctx, req.Credential)
 	if err != nil {
-		return &pb.PushMessageResponse{Response: ErrToResponse(err)}, nil
+		return &api.PushMessageResponse{Response: ErrToResponse(err)}, nil
 	}
 	termSelf, GetTopicTermErr := s.PartitionsController.GetTopicTerm(req.Topic)
-	res, CheckSrcTermErr := s.CheckSourceTermCall(ctx, &pb.CheckSourceTermRequest{Self: MqCredentials, TopicData: &pb.CheckSourceTermRequest_TopicCheck{Topic: req.Topic, TopicTerm: termSelf}, ConsumerData: nil})
+	res, CheckSrcTermErr := s.CheckSourceTermCall(ctx, &api.CheckSourceTermRequest{Self: MqCredentials, TopicData: &api.CheckSourceTermRequest_TopicCheck{Topic: req.Topic, TopicTerm: termSelf}, ConsumerData: nil})
 	if CheckSrcTermErr != nil {
-		return &pb.PushMessageResponse{Response: ErrToResponse(CheckSrcTermErr)}, nil
+		return &api.PushMessageResponse{Response: ErrToResponse(CheckSrcTermErr)}, nil
 	}
 	if res.TopicTerm != termSelf {
 		err = s.PartitionsController.UpdateTp(req.Topic, res)
 		if err != nil {
-			return &pb.PushMessageResponse{Response: ErrToResponse(err)}, nil
+			return &api.PushMessageResponse{Response: ErrToResponse(err)}, nil
 		} else {
 			NowTime := time.Now().UnixMilli() + int64(2*s.CacheStayTimeMs)
 			for _, id := range res.TopicData.FollowerProducerIDs.ID {
@@ -930,36 +967,36 @@ func (s *broker) PushMessage(ctx context.Context, req *pb.PushMessageRequest) (*
 		termSelf, GetTopicTermErr = s.PartitionsController.GetTopicTerm(req.Topic)
 	}
 	if GetTopicTermErr != nil {
-		return &pb.PushMessageResponse{Response: ErrToResponse(err)}, nil
+		return &api.PushMessageResponse{Response: ErrToResponse(err)}, nil
 	} else if req.TopicTerm < termSelf {
-		return &pb.PushMessageResponse{Response: ResponseErrPartitionChanged()}, nil
+		return &api.PushMessageResponse{Response: ResponseErrPartitionChanged()}, nil
 	} else if req.TopicTerm > termSelf {
-		return &pb.PushMessageResponse{Response: ResponseErrRequestIllegal()}, nil //
+		return &api.PushMessageResponse{Response: ResponseErrRequestIllegal()}, nil //
 	} else {
 		s.ProducerIDCache.Store(req.Credential.Id, time.Now().UnixMilli()+int64(2*s.CacheStayTimeMs))
 	}
 	p, GetPartErr := s.PartitionsController.GetPart(req.Topic, req.Part)
 	if GetPartErr != nil {
 		Log.ERROR(`Partition not found`)
-		return &pb.PushMessageResponse{Response: ErrToResponse(err)}, nil
+		return &api.PushMessageResponse{Response: ErrToResponse(err)}, nil
 	}
 	err = p.Write(req.Msgs.Message)
 	if err != nil {
-		return &pb.PushMessageResponse{Response: ErrToResponse(err)}, nil
+		return &api.PushMessageResponse{Response: ErrToResponse(err)}, nil
 	}
-	return &pb.PushMessageResponse{Response: ResponseSuccess()}, nil
+	return &api.PushMessageResponse{Response: ResponseSuccess()}, nil
 }
 
-func (s *broker) Heartbeat(_ context.Context, req *pb.MQHeartBeatData) (*pb.HeartBeatResponseData, error) {
+func (s *broker) Heartbeat(_ context.Context, req *api.MQHeartBeatData) (*api.HeartBeatResponseData, error) {
 	// TODO:
 	switch req.BrokerData.Identity {
-	case pb.Credentials_Broker:
+	case api.Credentials_Broker:
 		if s.MetaDataController == nil {
-			return &pb.HeartBeatResponseData{
+			return &api.HeartBeatResponseData{
 				Response: ResponseErrSourceNotExist(),
 			}, nil
 		} else {
-			ret := &pb.HeartBeatResponseData{
+			ret := &api.HeartBeatResponseData{
 				Response:             ResponseSuccess(),
 				ChangedTopic:         nil,
 				ChangedConsumerGroup: nil,
@@ -967,26 +1004,26 @@ func (s *broker) Heartbeat(_ context.Context, req *pb.MQHeartBeatData) (*pb.Hear
 			var err error
 			err = s.MetaDataController.KeepBrokersAlive(req.BrokerData.Id)
 			if err != nil {
-				return &pb.HeartBeatResponseData{Response: ErrToResponse(err)}, nil
+				return &api.HeartBeatResponseData{Response: ErrToResponse(err)}, nil
 			}
 			if req.CheckTopic != nil {
-				ret.ChangedTopic = &pb.HeartBeatResponseDataTpKv{}
+				ret.ChangedTopic = &api.HeartBeatResponseDataTpKv{}
 				ret.ChangedTopic.TopicTerm, err = s.MetaDataController.GetTopicTermDiff(req.CheckTopic.TopicTerm)
 				if err != nil {
-					return &pb.HeartBeatResponseData{Response: ErrToResponse(err)}, nil
+					return &api.HeartBeatResponseData{Response: ErrToResponse(err)}, nil
 				}
 			}
 			if req.CheckConsumerGroup != nil {
-				ret.ChangedConsumerGroup = &pb.HeartBeatResponseDataCgKv{}
+				ret.ChangedConsumerGroup = &api.HeartBeatResponseDataCgKv{}
 				ret.ChangedConsumerGroup.ChangedGroup, err = s.MetaDataController.GetConsumerGroupTermDiff(req.CheckConsumerGroup.ConsumerGroup)
 				if err != nil {
-					return &pb.HeartBeatResponseData{Response: ErrToResponse(err)}, nil
+					return &api.HeartBeatResponseData{Response: ErrToResponse(err)}, nil
 				}
 			}
 			return ret, nil
 		}
 	default:
-		return &pb.HeartBeatResponseData{
+		return &api.HeartBeatResponseData{
 			Response: ResponseErrRequestIllegal(),
 		}, nil
 	}

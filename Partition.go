@@ -6,12 +6,13 @@ import (
 	"MqServer/MessageMem"
 	"MqServer/RaftServer"
 	"MqServer/RaftServer/Pack"
+	"MqServer/common"
 	"bytes"
 	"sync"
 	"sync/atomic"
 )
 
-var (
+const (
 	Partition_Mode_ToDel  = int32(1)
 	Partition_Mode_Normal = int32(0)
 )
@@ -24,8 +25,6 @@ type Partition struct {
 	ConsumerGroupManager *ConsumerGroup.GroupsManager
 	MessageEntry         *MessageMem.MessageEntry
 }
-
-var defaultEntryMaxSizeOf_1Block = int64(1e3)
 
 const (
 	PartitionCommand_Write = "w"
@@ -295,7 +294,7 @@ func newPartition(t, p string,
 		Node:         nil,
 		T:            t,
 		P:            p,
-		MessageEntry: MessageMem.NewMessageEntry(MaxEntries, MaxSize, defaultEntryMaxSizeOf_1Block),
+		MessageEntry: MessageMem.NewMessageEntry(MaxEntries, MaxSize, common.DefaultEntryMaxSizeOfEachBlock),
 	}
 	part.ConsumerGroupManager = ConsumerGroup.NewGroupsManager(handleTimeout, part)
 	node, err := server.RegisterRfNode(t, p, part, part, peers...)
@@ -495,10 +494,10 @@ func (ptc *PartitionsController) RegisterPart(t, p string,
 	ptc.partsMu.Lock()
 	defer ptc.partsMu.Unlock()
 	if MaxSize == 0 {
-		MaxSize = defaultMaxSize
+		MaxSize = uint64(common.PartDefaultMaxSize)
 	}
 	if MaxEntries == 0 {
-		MaxEntries = defaultMaxEntries
+		MaxEntries = uint64(common.PartDefaultMaxEntries)
 	}
 	ok := false
 	if data, ok := ptc.P[t]; !ok || data == nil {

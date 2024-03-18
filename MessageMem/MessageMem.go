@@ -2,6 +2,7 @@ package MessageMem
 
 import (
 	"MqServer/RaftServer/Pack"
+	"MqServer/common"
 	"bytes"
 	"sync/atomic"
 )
@@ -117,30 +118,25 @@ func (me *MessageEntry) Write(bt []byte) {
 	}
 }
 
-var (
-	defaultMaxEntries = int32(5)
-	defaultMaxSize    = int32(1024 * 1024)
-)
-
 // Read
 // Input Index, MaxEntries, MaxSize
 // Return( BeginOff Data ReadNum )
 func (me *MessageEntry) Read(Index int64, MaxEntries, MaxSize int32) (int64, [][]byte, int64) {
 	if MaxEntries <= 0 {
-		MaxEntries = defaultMaxEntries
+		MaxEntries = common.DefaultMaxEntriesOf1Read
 	}
 	if MaxSize <= 0 {
-		MaxSize = defaultMaxSize
+		MaxSize = common.DefaultMaxSizeOf1Read
 	}
 	return me.En.read(Index, int64(MaxEntries), int64(MaxSize))
 }
 
-func NewMessageEntry(MaxEntries, MaxSize uint64, EntryMaxSizeOf_1Block int64) *MessageEntry {
+func NewMessageEntry(MaxEntries, MaxSize uint64, EntryMaxSizeOf1Block int64) *MessageEntry {
 	return &MessageEntry{
 		En: EntryBlocks{
 			Ens:                   append(make([]*Block, 0), newBlock()),
 			BeginOffset:           0,
-			EntryMaxSizeOf_1Block: EntryMaxSizeOf_1Block,
+			EntryMaxSizeOf_1Block: EntryMaxSizeOf1Block,
 		},
 		mode:              0,
 		MaxEntries:        MaxEntries,

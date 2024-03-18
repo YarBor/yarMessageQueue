@@ -32,7 +32,7 @@ func init() {
 	log.SetFlags(log.Lmicroseconds)
 }
 
-func _string(a interface{}) string {
+func ToJson(a interface{}) string {
 	if str, ok := a.(string); ok {
 		return str
 	}
@@ -61,7 +61,7 @@ func TRACE(i ...interface{}) {
 	if atomic.LoadInt32(&logLevel) <= LogLevel_TRACE {
 		st1 := ""
 		for _, i2 := range i {
-			st1 += fmt.Sprintf("%s ", _string(i2))
+			st1 += fmt.Sprintf("%s ", ToJson(i2))
 		}
 		log.Printf("TRACE : %s", st1)
 	}
@@ -71,7 +71,7 @@ func DEBUG(i ...interface{}) {
 	if atomic.LoadInt32(&logLevel) <= LogLevel_DEBUG {
 		st1 := ""
 		for _, i2 := range i {
-			st1 += fmt.Sprintf("%s ", _string(i2))
+			st1 += fmt.Sprintf("%s ", ToJson(i2))
 		}
 		log.Printf("DEBUG : %s", st1)
 	}
@@ -81,7 +81,7 @@ func INFO(i ...interface{}) {
 	if atomic.LoadInt32(&logLevel) <= LogLevel_INFO {
 		st1 := ""
 		for _, i2 := range i {
-			st1 += fmt.Sprintf("%s ", _string(i2))
+			st1 += fmt.Sprintf("%s ", ToJson(i2))
 		}
 		log.Printf("INFO : %s", st1)
 	}
@@ -91,7 +91,7 @@ func WARN(i ...interface{}) {
 	if atomic.LoadInt32(&logLevel) <= LogLevel_WARN {
 		st1 := ""
 		for _, i2 := range i {
-			st1 += fmt.Sprintf("%s ", _string(i2))
+			st1 += fmt.Sprintf("%s ", ToJson(i2))
 		}
 		log.Printf("WARN : %s", st1)
 	}
@@ -101,7 +101,7 @@ func ERROR(i ...interface{}) {
 	if atomic.LoadInt32(&logLevel) <= LogLevel_ERROR {
 		st1 := ""
 		for _, i2 := range i {
-			st1 += fmt.Sprintf("%s ", _string(i2))
+			st1 += fmt.Sprintf("%s ", ToJson(i2))
 		}
 		log.Printf("ERROR : %s", st1)
 	}
@@ -111,7 +111,7 @@ func FATAL(i ...interface{}) {
 	if atomic.LoadInt32(&logLevel) <= LogLevel_FATAL {
 		st1 := ""
 		for _, i2 := range i {
-			st1 += fmt.Sprintf("%s ", _string(i2))
+			st1 += fmt.Sprintf("%s ", ToJson(i2))
 		}
 		log.Fatalf("FATAL : %s", st1)
 	}
@@ -120,7 +120,7 @@ func FATAL(i ...interface{}) {
 func PANIC(i ...interface{}) {
 	st1 := ""
 	for _, i2 := range i {
-		st1 += fmt.Sprintf("%s ", _string(i2))
+		st1 += fmt.Sprintf("%s ", ToJson(i2))
 	}
 	log.Printf("PANIC : %s", st1)
 	panic(i)

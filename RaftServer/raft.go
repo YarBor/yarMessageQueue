@@ -2,6 +2,8 @@ package RaftServer
 
 import (
 	"MqServer/RaftServer/Persister"
+	"MqServer/common"
+
 	//	"bytes"
 	"bytes"
 	"context"
@@ -29,7 +31,7 @@ func (rf *Raft) checkFuncDone(_ string) func() {
 	//	i2 <- true
 	//	for {
 	//		select {
-	//		case <-time.After(HeartbeatTimeout * 2 * time.Millisecond):
+	//		case <-time.After(common.RaftHeartbeatTimeout * 2 * time.Millisecond):
 	//			r.Dolog(-1, "\n", t, "!!!!\t", FuncName+" MayLocked\n")
 	//		case <-i:
 	//			close(i)
@@ -50,9 +52,7 @@ var (
 	LevelCandidate = int32(2)
 	LevelFollower  = int32(1)
 
-	commitChanSize   = int32(100)
-	HeartbeatTimeout = 300 * time.Millisecond
-	voteTimeOut      = 300 * time.Millisecond
+	commitChanSize = int32(100)
 
 	LogCheckBeginOrReset = 0
 	LogCheckAppend       = 1
@@ -141,7 +141,7 @@ func (R *RaftPeer) updateLastTalkTime() {
 	atomic.StoreInt64(&R.lastTalkTime, time.Now().UnixMicro())
 }
 func (R *RaftPeer) isTimeOut() bool {
-	return (time.Now().UnixMicro() - atomic.LoadInt64(&R.lastTalkTime)) > (HeartbeatTimeout * 2).Microseconds()
+	return (time.Now().UnixMicro() - atomic.LoadInt64(&R.lastTalkTime)) > (common.RaftHeartbeatTimeout * 2).Microseconds()
 }
 func (rf *Raft) checkOutLeaderOnline() bool {
 	if rf.level != LevelLeader {
@@ -315,7 +315,7 @@ func (rf *Raft) registeHeartBeat(index int) {
 				goto restart
 			case <-rf.raftPeers[index].JumpHeartBeat:
 				continue
-			case <-time.After(HeartbeatTimeout):
+			case <-time.After(common.RaftHeartbeatTimeout):
 			case <-rf.raftPeers[index].SendHeartBeat:
 			}
 			if rf.getLevel() != LevelLeader {
@@ -1328,7 +1328,7 @@ func (rf *Raft) ticker() {
 				return
 			case <-rf.timeOutChan:
 				atomic.StoreInt32(&rf.isLeaderAlive, 1)
-			case <-time.After(voteTimeOut + (time.Duration(rand.Int63()%150) * time.Millisecond)):
+			case <-time.After(common.RaftVoteTimeOut + (time.Duration(rand.Int63()%150) * time.Millisecond)):
 				rf.Dolog(-1, "TimeOut")
 				atomic.StoreInt32(&rf.isLeaderAlive, 0)
 				rf.wg.Add(1)
@@ -1446,7 +1446,7 @@ func TryToBecomeLeader(rf *Raft) {
 
 func (rf *Raft) call(index int, FuncName string, arg *RequestArgs, rpl *RequestReply) bool {
 	asdf := time.Now().UnixNano()
-	ctx, cancel := context.WithTimeout(context.Background(), HeartbeatTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), common.RaftHeartbeatTimeout)
 	defer cancel()
 	i := false
 	rf.wg.Add(1)
@@ -1464,7 +1464,7 @@ func (rf *Raft) call(index int, FuncName string, arg *RequestArgs, rpl *RequestR
 	select {
 	case <-ctx.Done():
 		rf.raftPeers[index].updateLastTalkTime()
-	case <-time.After(HeartbeatTimeout):
+	case <-time.After(common.RaftHeartbeatTimeout):
 		rf.Dolog(index, "Rpc Timeout ", FuncName, arg.string(), rpl.string())
 	}
 	return i

@@ -5,7 +5,8 @@ import (
 	mqLog "MqServer/Log"
 	"MqServer/RaftServer/Pack"
 	"MqServer/RaftServer/Persister"
-	pb "MqServer/api"
+	"MqServer/api"
+	"MqServer/common"
 	"bytes"
 	"context"
 	"errors"
@@ -21,9 +22,6 @@ const (
 	ErrCommitTimeout   = "commit timeout"
 	ErrNodeDidNotStart = "node did not start"
 )
-
-var commitTimeout time.Duration = time.Millisecond * 500
-var RaftLogSize = 1024 * 1024 * 2
 
 const (
 	RfNodeNotFound        = "RfNodeNotFound"
@@ -119,7 +117,7 @@ func (rn *RaftNode) LinkPeerRpcServer(addr, id string) (*ClientEnd, error) {
 		panic(err.Error())
 	}
 	res := &ClientEnd{
-		RaftCallClient: pb.NewRaftCallClient(conn),
+		RaftCallClient: api.NewRaftCallClient(conn),
 		ID:             id,
 		rfn:            rn,
 		Conn:           conn,
@@ -185,7 +183,7 @@ func (rn *RaftNode) Commit(command interface{}) (error, interface{}) {
 		}
 	}
 	select {
-	case <-time.After(commitTimeout):
+	case <-time.After(common.MQCommitTimeout):
 		rn.idMap.Delete(entry.Id)
 		return errors.New(ErrCommitTimeout), nil
 	case p, ok := <-ch:
@@ -217,7 +215,7 @@ func (rn *RaftNode) CommandHandleFunc() {
 				}
 				err, data := rn.commandHandler.Handle(command.Cmd)
 				rn.idMap.GetCallDelete(command.Id, err, data)
-				if rn.rf != nil && rn.Persistent.RaftStateSize() > RaftLogSize/2 {
+				if rn.rf != nil && rn.Persistent.RaftStateSize() > common.RaftLogSize/2 {
 					bt := rn.snapshotHandler.MakeSnapshot()
 					rn.rf.Snapshot(applyMsg.CommandIndex, bt)
 				}
@@ -241,7 +239,7 @@ func (rn *RaftNode) Start() {
 }
 
 type RaftServer struct {
-	pb.UnimplementedRaftCallServer
+	api.UnimplementedRaftCallServer
 	mu            sync.RWMutex
 	server        *grpc.Server
 	listener      net.Listener
@@ -263,12 +261,12 @@ func (rs *RaftServer) Serve() error {
 	rs.listener = lis
 	s := grpc.NewServer()
 	rs.server = s
-	pb.RegisterRaftCallServer(s, rs)
+	api.RegisterRaftCallServer(s, rs)
 
 	mqLog.DEBUG("RaftServer Serve ", rs.ID, rs.Url)
 	return rs.server.Serve(rs.listener)
 }
-func (rs *RaftServer) HeartBeat(_ context.Context, arg *pb.HeartBeatRequest) (rpl *pb.HeartBeatResponse, err error) {
+func (rs *RaftServer) HeartBeat(_ context.Context, arg *api.HeartBeatRequest) (rpl *api.HeartBeatResponse, err error) {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
 	var rf *Raft
@@ -296,7 +294,7 @@ func (rs *RaftServer) HeartBeat(_ context.Context, arg *pb.HeartBeatRequest) (rp
 		mqLog.FATAL(err.Error())
 	}
 	if rpl == nil {
-		rpl = &pb.HeartBeatResponse{}
+		rpl = &api.HeartBeatResponse{}
 	}
 	rpl.Topic = arg.Topic
 	rpl.Partition = arg.Partition
@@ -304,7 +302,7 @@ func (rs *RaftServer) HeartBeat(_ context.Context, arg *pb.HeartBeatRequest) (rp
 	return rpl, nil
 }
 
-func (rs *RaftServer) RequestPreVote(_ context.Context, arg *pb.RequestPreVoteRequest) (rpl *pb.RequestPreVoteResponse, err error) {
+func (rs *RaftServer) RequestPreVote(_ context.Context, arg *api.RequestPreVoteRequest) (rpl *api.RequestPreVoteResponse, err error) {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
 	var rf *Raft
@@ -338,7 +336,7 @@ func (rs *RaftServer) RequestPreVote(_ context.Context, arg *pb.RequestPreVoteRe
 		mqLog.FATAL(err.Error())
 	}
 	if rpl == nil {
-		rpl = &pb.RequestPreVoteResponse{}
+		rpl = &api.RequestPreVoteResponse{}
 	}
 	rpl.Topic = arg.Topic
 	rpl.Partition = arg.Partition
@@ -346,7 +344,7 @@ func (rs *RaftServer) RequestPreVote(_ context.Context, arg *pb.RequestPreVoteRe
 	return rpl, nil
 }
 
-func (rs *RaftServer) RequestVote(_ context.Context, arg *pb.RequestVoteRequest) (rpl *pb.RequestVoteResponse, err error) {
+func (rs *RaftServer) RequestVote(_ context.Context, arg *api.RequestVoteRequest) (rpl *api.RequestVoteResponse, err error) {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
 	var rf *Raft
@@ -378,7 +376,7 @@ func (rs *RaftServer) RequestVote(_ context.Context, arg *pb.RequestVoteRequest)
 		mqLog.FATAL(err.Error())
 	}
 	if rpl == nil {
-		rpl = &pb.RequestVoteResponse{}
+		rpl = &api.RequestVoteResponse{}
 	}
 	rpl.Topic = arg.Topic
 	rpl.Partition = arg.Partition
@@ -444,7 +442,7 @@ func (rs *RaftServer) SetRaftServerInfo(ID, Url string) bool {
 
 func MakeRaftServer() (*RaftServer, error) {
 	res := &RaftServer{
-		UnimplementedRaftCallServer: pb.UnimplementedRaftCallServer{},
+		UnimplementedRaftCallServer: api.UnimplementedRaftCallServer{},
 		mu:                          sync.RWMutex{},
 		metadataRaft:                nil,
 		rfs:                         make(map[string]map[string]*RaftNode),
