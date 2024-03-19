@@ -95,6 +95,9 @@ func (o *BrokerOptions) Build() (*BrokerOptions, error) {
 	if _, ok := o.data["BrokerKey"]; !ok {
 		o.data["BrokerKey"] = Random.RandStringBytes(16)
 	}
+	if _, ok := o.data["BrokerHeartBeatSessionMs"]; !ok {
+		o.data["BrokerHeartBeatSessionMs"] = common.BrokerHeartBeatSessionMs
+	}
 	o.IsBuild = true
 	return o.Check()
 }

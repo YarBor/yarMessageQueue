@@ -2530,3 +2530,25 @@ func (mdc *MetaDataController) ToGetJson() string {
 	data, _ := json.Marshal(mdc.MD)
 	return string(data)
 }
+
+func (md *MetaData) RegisterBroker(brokerMD *BrokerMD) error {
+	md.bkMu.Lock()
+	defer md.bkMu.Unlock()
+	if _, ok := md.Brokers[brokerMD.ID]; ok {
+		return Err.ErrSourceAlreadyExist
+	} else {
+		md.Brokers[brokerMD.ID] = brokerMD
+	}
+	return nil
+}
+
+func (mdc *MetaDataController) RegisterBroker(req *api.RegisterBrokerRequest) *api.RegisterBrokerResponse {
+	if !mdc.isAlive || !mdc.IsLeader() {
+		return &api.RegisterBrokerResponse{Response: ResponseErrNotLeader()}
+	}
+	bk := NewBrokerMD(req.IsMetadataNode, req.ID, req.MqServerUrl, req.HeartBeatSession)
+	mdc.mu.RLock()
+	defer mdc.mu.RUnlock()
+	err := mdc.MD.RegisterBroker(bk)
+	return &api.RegisterBrokerResponse{Response: ErrToResponse(err)}
+}

@@ -51,6 +51,7 @@ type MqServerCallClient interface {
 	// 推送消息
 	PushMessage(ctx context.Context, in *PushMessageRequest, opts ...grpc.CallOption) (*PushMessageResponse, error)
 	ConfirmIdentity(ctx context.Context, in *ConfirmIdentityRequest, opts ...grpc.CallOption) (*ConfirmIdentityResponse, error)
+	RegisterBroker(ctx context.Context, in *RegisterBrokerRequest, opts ...grpc.CallOption) (*RegisterBrokerResponse, error)
 }
 
 type mqServerCallClient struct {
@@ -241,6 +242,15 @@ func (c *mqServerCallClient) ConfirmIdentity(ctx context.Context, in *ConfirmIde
 	return out, nil
 }
 
+func (c *mqServerCallClient) RegisterBroker(ctx context.Context, in *RegisterBrokerRequest, opts ...grpc.CallOption) (*RegisterBrokerResponse, error) {
+	out := new(RegisterBrokerResponse)
+	err := c.cc.Invoke(ctx, "/MqServer.MqServerCall/RegisterBroker", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MqServerCallServer is the server API for MqServerCall service.
 // All implementations must embed UnimplementedMqServerCallServer
 // for forward compatibility
@@ -274,6 +284,7 @@ type MqServerCallServer interface {
 	// 推送消息
 	PushMessage(context.Context, *PushMessageRequest) (*PushMessageResponse, error)
 	ConfirmIdentity(context.Context, *ConfirmIdentityRequest) (*ConfirmIdentityResponse, error)
+	RegisterBroker(context.Context, *RegisterBrokerRequest) (*RegisterBrokerResponse, error)
 	mustEmbedUnimplementedMqServerCallServer()
 }
 
@@ -340,6 +351,9 @@ func (UnimplementedMqServerCallServer) PushMessage(context.Context, *PushMessage
 }
 func (UnimplementedMqServerCallServer) ConfirmIdentity(context.Context, *ConfirmIdentityRequest) (*ConfirmIdentityResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ConfirmIdentity not implemented")
+}
+func (UnimplementedMqServerCallServer) RegisterBroker(context.Context, *RegisterBrokerRequest) (*RegisterBrokerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RegisterBroker not implemented")
 }
 func (UnimplementedMqServerCallServer) mustEmbedUnimplementedMqServerCallServer() {}
 
@@ -714,6 +728,24 @@ func _MqServerCall_ConfirmIdentity_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MqServerCall_RegisterBroker_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegisterBrokerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MqServerCallServer).RegisterBroker(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/MqServer.MqServerCall/RegisterBroker",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MqServerCallServer).RegisterBroker(ctx, req.(*RegisterBrokerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MqServerCall_ServiceDesc is the grpc.ServiceDesc for MqServerCall service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -800,6 +832,10 @@ var MqServerCall_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ConfirmIdentity",
 			Handler:    _MqServerCall_ConfirmIdentity_Handler,
+		},
+		{
+			MethodName: "RegisterBroker",
+			Handler:    _MqServerCall_RegisterBroker_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

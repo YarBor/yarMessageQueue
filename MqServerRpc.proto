@@ -51,8 +51,19 @@ service MqServerCall {
   // 推送消息
   rpc PushMessage(PushMessageRequest) returns (PushMessageResponse) {}
   rpc ConfirmIdentity(ConfirmIdentityRequest) returns (ConfirmIdentityResponse){}
+
+  rpc RegisterBroker(RegisterBrokerRequest) returns (RegisterBrokerResponse) {}
 }
 
+message RegisterBrokerRequest {
+  bool IsMetadataNode = 1;
+  string ID = 2;
+  string MqServerUrl = 3;
+  int64 HeartBeatSession = 4;
+}
+message RegisterBrokerResponse {
+  Response response = 1;
+}
 message HeartBeatResponseData {
   message tpKv{
     map<string, int32> TopicTerm = 1;

@@ -8,7 +8,10 @@ import (
 	"MqServer/api"
 	"MqServer/common"
 	"context"
+	"errors"
 	"google.golang.org/grpc"
+	"net"
+
 	//"math"
 	"sort"
 	"sync"
@@ -35,11 +38,14 @@ type brokerPeer struct {
 
 type broker struct {
 	api.UnimplementedMqServerCallServer
+	mqCredentials            *api.Credentials
 	Config                   *BrokerOptions
 	RaftServer               *RaftServer.RaftServer
 	Url                      string
 	ID                       string
 	Key                      string
+	Listener                 net.Listener
+	Server                   *grpc.Server
 	ProducerIDCache          sync.Map
 	CacheStayTimeMs          int32
 	MetadataLeaderID         atomic.Value // *string
@@ -49,7 +55,8 @@ type broker struct {
 	IsStop                   bool
 	wg                       sync.WaitGroup
 	RequestTimeoutSessionsMs int32
-	HeartBeatSessionsMs      int32
+	RaftHeartBeatSessionsMs  int32
+	BrokerHeartBeatSessionMs int32
 }
 
 func (s *broker) CheckProducerTimeout() {
@@ -81,13 +88,13 @@ func (s *broker) CheckProducerTimeout() {
 func (s *broker) goSendHeartbeat() {
 	defer s.wg.Done()
 	for !s.IsStop {
-		for ID, peer := range s.MetadataPeers {
+		for ID, MDpeer := range s.MetadataPeers {
 			for {
-				if !s.IsStop {
+				if s.IsStop {
 					return
 				}
 				req := api.MQHeartBeatData{
-					BrokerData:         MqCredentials,
+					BrokerData:         s.mqCredentials,
 					CheckTopic:         &api.MQHeartBeatDataTpKv{TopicTerm: make(map[string]int32)},
 					CheckConsumerGroup: &api.MQHeartBeatDataCgKv{ConsumerGroup: make(map[string]int32)},
 				}
@@ -123,9 +130,10 @@ func (s *broker) goSendHeartbeat() {
 						}
 					}
 				}
-				s.PartitionsController.ttMu.RUnlock()
-				res, err := peer.Client.Heartbeat(context.Background(), &req)
+				//s.PartitionsController.ttMu.RUnlock()
+				res, err := MDpeer.Client.Heartbeat(context.Background(), &req)
 				if err != nil {
+					Log.DEBUG("Heartbeat Error ", err.Error())
 					goto next
 				} else {
 					s.MetadataLeaderID.Store(&ID)
@@ -137,9 +145,9 @@ func (s *broker) goSendHeartbeat() {
 							s.wg.Add(1)
 							go func() {
 								defer s.wg.Done()
-								res, err := s.CheckSourceTermCall(context.Background(), &api.CheckSourceTermRequest{Self: MqCredentials, TopicData: &api.CheckSourceTermRequest_TopicCheck{Topic: tp, TopicTerm: -1}, ConsumerData: nil})
+								res, err := s.CheckSourceTermCall(context.Background(), &api.CheckSourceTermRequest{Self: s.mqCredentials, TopicData: &api.CheckSourceTermRequest_TopicCheck{Topic: tp, TopicTerm: -1}, ConsumerData: nil})
 								if err == nil {
-									err = s.PartitionsController.UpdateTp(tp, res)
+									err = s.PartitionsController.UpdateTp(s.ID, tp, res)
 									if err != nil {
 										Log.ERROR("Heart Beat Get Tp Diff Success Check Success UpdateFalse ", res)
 									}
@@ -148,14 +156,15 @@ func (s *broker) goSendHeartbeat() {
 								}
 							}()
 						}
-					} else if res.ChangedConsumerGroup != nil {
+					}
+					if res.ChangedConsumerGroup != nil {
 						for _groupID, _ := range res.ChangedConsumerGroup.ChangedGroup {
 							groupID := _groupID
 							s.wg.Add(1)
 							go func() {
 								defer s.wg.Done()
 								res, err := s.CheckSourceTermCall(context.Background(), &api.CheckSourceTermRequest{
-									Self:      MqCredentials,
+									Self:      s.mqCredentials,
 									TopicData: nil,
 									ConsumerData: &api.CheckSourceTermRequest_ConsumerCheck{
 										ConsumerId: nil,
@@ -164,7 +173,7 @@ func (s *broker) goSendHeartbeat() {
 									},
 								})
 								if err == nil {
-									err = s.PartitionsController.UpdateCg(groupID, res)
+									err = s.PartitionsController.UpdateCg(s.ID, groupID, res)
 									if err != nil {
 										Log.ERROR("Heart Beat Get Cg Diff Success Check Success UpdateFalse ", res)
 									}
@@ -177,7 +186,6 @@ func (s *broker) goSendHeartbeat() {
 				}
 				time.Sleep(time.Duration(s.RequestTimeoutSessionsMs) * time.Millisecond)
 			}
-
 		next:
 		}
 	}
@@ -188,12 +196,42 @@ func (s *broker) Serve() error {
 	if err != nil {
 		return err
 	}
-	go s.RaftServer.Serve()
-
+	//mqCredentials
+	go func() {
+		err := s.RaftServer.Serve()
+		if err != nil {
+			panic(err)
+		}
+	}()
+	go func() {
+		lis, err := net.Listen("tcp", s.Url)
+		if err != nil {
+			panic(err)
+		}
+		s.Listener = lis
+		ns := grpc.NewServer()
+		s.Server = ns
+		api.RegisterMqServerCallServer(ns, s)
+		Log.DEBUG("MQServer Serve ", s.ID, s.Url)
+		err = s.Server.Serve(lis)
+		if err != nil {
+			panic(err)
+		}
+	}()
 	if s.MetaDataController != nil {
 		s.MetaDataController.MetaDataRaft.Start()
 		_ = s.MetaDataController.Start()
 	}
+	if s.Config.data["IsMetaDataServer"].(bool) == false {
+		for _, peer := range s.MetadataPeers {
+			res, err := peer.Client.RegisterBroker(context.Background(), &api.RegisterBrokerRequest{IsMetadataNode: false, ID: s.ID, MqServerUrl: s.Url, HeartBeatSession: int64(s.BrokerHeartBeatSessionMs)})
+			if err != nil && res.Response.Mode == api.Response_Success {
+				goto success
+			}
+		}
+		return errors.New("not Find RegisterServer Register failed")
+	}
+success:
 	s.wg.Add(3)
 	go s.CheckProducerTimeout()
 	go s.goSendHeartbeat()
@@ -217,7 +255,7 @@ func (s *broker) CancelReg2Cluster(consumer *ConsumerGroup.Consumer) {
 	for {
 		cc := f()
 		res, err := cc.Client.ConsumerDisConnect(context.Background(), &api.DisConnectInfo{
-			BrokerInfo: MqCredentials,
+			BrokerInfo: s.mqCredentials,
 			TargetInfo: &api.Credentials{
 				Identity: api.Credentials_Consumer,
 				Id:       consumer.SelfId,
@@ -234,8 +272,6 @@ func (s *broker) CancelReg2Cluster(consumer *ConsumerGroup.Consumer) {
 	}
 }
 
-var MqCredentials *api.Credentials
-
 // for option call
 func (s *broker) registerRaftNode() (err error) {
 	if s.MetaDataController == nil {
@@ -249,25 +285,36 @@ func (s *broker) registerRaftNode() (err error) {
 	return err
 }
 
+func (s *broker) RegisterBroker(_ context.Context, req *api.RegisterBrokerRequest) (response *api.RegisterBrokerResponse, err error) {
+	if s.IsStop && s.MetaDataController != nil && s.MetaDataController.IsLeader() {
+		return &api.RegisterBrokerResponse{Response: ResponseErrNotLeader()}, nil
+	}
+	return s.MetaDataController.RegisterBroker(req), nil
+}
+
 func newBroker(option *BrokerOptions) (*broker, error) {
 	//var err error
 	bk := &broker{
-		Config:                          option,
 		UnimplementedMqServerCallServer: api.UnimplementedMqServerCallServer{},
+		mqCredentials:                   &api.Credentials{Identity: api.Credentials_Broker, Id: option.data["BrokerID"].(string), Key: option.data["BrokerKey"].(string)},
+		Config:                          option,
 		RaftServer:                      nil,
 		Url:                             option.data["BrokerAddr"].(string),
 		ID:                              option.data["BrokerID"].(string),
 		Key:                             option.data["BrokerKey"].(string),
+		Listener:                        nil,
+		Server:                          nil,
+		ProducerIDCache:                 sync.Map{},
 		CacheStayTimeMs:                 int32(common.CacheStayTime_Ms),
 		MetadataLeaderID:                atomic.Value{},
 		MetadataPeers:                   make(map[string]*brokerPeer),
-		ProducerIDCache:                 sync.Map{},
 		MetaDataController:              nil,
 		PartitionsController:            nil, // TODO:
 		IsStop:                          false,
 		wg:                              sync.WaitGroup{},
 		RequestTimeoutSessionsMs:        int32(common.MQRequestTimeoutSessions_Ms),
-		HeartBeatSessionsMs:             int32(common.RaftHeartbeatTimeout),
+		RaftHeartBeatSessionsMs:         int32(common.RaftHeartbeatTimeout),
+		BrokerHeartBeatSessionMs:        option.data["BrokerHeartBeatSessionMs"].(int32),
 	}
 
 	i, ok := option.data["IsMetaDataServer"]
@@ -292,7 +339,7 @@ func newBroker(option *BrokerOptions) (*broker, error) {
 		bk.MetadataPeers[ID].Conn = conn
 		bk.MetadataPeers[ID].Client = api.NewMqServerCallClient(conn)
 		if ok && i.(bool) {
-			MDpeers = append(MDpeers, NewBrokerMD(true, ID, Data.(map[string]interface{})["Url"].(string), Data.(map[string]interface{})["HeartBeatSession"].(int64)))
+			MDpeers = append(MDpeers, NewBrokerMD(true, ID, Data.(map[string]interface{})["RaftUrl"].(string), Data.(map[string]interface{})["HeartBeatSession"].(int64)))
 		}
 	}
 	bk.RaftServer, _ = RaftServer.MakeRaftServer()
@@ -318,6 +365,7 @@ func newBroker(option *BrokerOptions) (*broker, error) {
 		bk.MetaDataController.MetaDataRaft = node
 	}
 
+	bk.PartitionsController = NewPartitionsController(bk.RaftServer, bk)
 	return bk, nil
 }
 
@@ -620,7 +668,7 @@ func (s *broker) PullMessage(ctx context.Context, req *api.PullMessageRequest) (
 	// term check
 	if term < req.GroupTerm {
 		res, err := s.CheckSourceTermCall(ctx, &api.CheckSourceTermRequest{
-			Self:      MqCredentials,
+			Self:      s.mqCredentials,
 			TopicData: nil,
 			ConsumerData: &api.CheckSourceTermRequest_ConsumerCheck{
 				ConsumerId: &req.Self.Id,
@@ -631,7 +679,7 @@ func (s *broker) PullMessage(ctx context.Context, req *api.PullMessageRequest) (
 		if err != nil {
 			return &api.PullMessageResponse{Response: ErrToResponse(err)}, nil
 		} else {
-			err = s.PartitionsController.UpdateCg(req.Group.Id, res)
+			err = s.PartitionsController.UpdateCg(s.ID, req.Group.Id, res)
 			if err != nil {
 				return &api.PullMessageResponse{Response: ErrToResponse(err)}, nil
 			}
@@ -684,7 +732,7 @@ func (s *broker) checkProducer(cxt context.Context, Credential *api.Credentials)
 			}
 			cc := f()
 			res, err := cc.Client.ConfirmIdentity(cxt, &api.ConfirmIdentityRequest{
-				Self:          MqCredentials,
+				Self:          s.mqCredentials,
 				CheckIdentity: Credential,
 			})
 			if err != nil {
@@ -725,18 +773,18 @@ func (s *broker) CheckSourceTermCall(ctx context.Context, req *api.CheckSourceTe
 	}
 }
 
-func (p *PartitionsController) UpdateCg(CgId string, req *api.CheckSourceTermResponse) error {
+func (p *PartitionsController) UpdateCg(bkID, CgID string, req *api.CheckSourceTermResponse) error {
 	if req.Response.Mode != api.Response_Success || req.ConsumersData == nil {
 		return Err.ErrRequestIllegal
 	}
 	p.cgtMu.RLock()
-	term, ok := p.ConsumerGroupTerm[CgId]
+	term, ok := p.ConsumerGroupTerm[CgID]
 	p.cgtMu.RUnlock()
 
 	if !ok {
 		for _, part := range req.ConsumersData.FcParts {
 			for _, brokerData := range part.Part.Brokers {
-				if brokerData.Id == MqCredentials.Id {
+				if brokerData.Id == bkID {
 					goto success
 				}
 			}
@@ -746,11 +794,11 @@ func (p *PartitionsController) UpdateCg(CgId string, req *api.CheckSourceTermRes
 		term = new(int32)
 		*term = -1
 		p.cgtMu.Lock()
-		if _, ok = p.ConsumerGroupTerm[CgId]; ok {
+		if _, ok = p.ConsumerGroupTerm[CgID]; ok {
 			p.cgtMu.Unlock()
 			return Err.ErrSourceAlreadyExist
 		} else {
-			p.ConsumerGroupTerm[CgId] = term
+			p.ConsumerGroupTerm[CgID] = term
 		}
 		p.cgtMu.Unlock()
 	} else if atomic.LoadInt32(term) >= req.GroupTerm {
@@ -771,7 +819,7 @@ func (p *PartitionsController) UpdateCg(CgId string, req *api.CheckSourceTermRes
 	}
 	for _, part := range req.ConsumersData.FcParts {
 		for _, brokerData := range part.Part.Brokers {
-			if brokerData.Id == MqCredentials.Id {
+			if brokerData.Id == bkID {
 				getPart, _ := p.GetPart(part.Part.Topic, part.Part.PartName)
 				if getPart == nil {
 					peers := []struct{ ID, Url string }{}
@@ -780,7 +828,7 @@ func (p *PartitionsController) UpdateCg(CgId string, req *api.CheckSourceTermRes
 					}
 					getPart, _ = p.RegisterPart(part.Part.Topic, part.Part.PartName, uint64(common.PartDefaultMaxEntries), uint64(common.PartDefaultMaxSize), peers...)
 				}
-				g, err := getPart.ConsumerGroupManager.GetConsumerGroup(CgId)
+				g, err := getPart.ConsumerGroupManager.GetConsumerGroup(CgID)
 				if err != nil {
 					var Off int64
 					switch *req.ConsumerGroupOption {
@@ -789,14 +837,14 @@ func (p *PartitionsController) UpdateCg(CgId string, req *api.CheckSourceTermRes
 					case api.RegisterConsumerGroupRequest_Latest:
 						Off = getPart.MessageEntry.GetEndOffset()
 					}
-					g, err = getPart.registerConsumerGroup(CgId, ConsumerGroup.NewConsumer(*part.ConsumerID,
-						CgId, *part.ConsumerTimeoutSession, *part.ConsumerMaxReturnMessageSize, *part.ConsumerMaxReturnMessageEntries), Off)
+					g, err = getPart.registerConsumerGroup(CgID, ConsumerGroup.NewConsumer(*part.ConsumerID,
+						CgID, *part.ConsumerTimeoutSession, *part.ConsumerMaxReturnMessageSize, *part.ConsumerMaxReturnMessageEntries), Off)
 					if err != nil {
 						isSetTerm = false
 					}
 				} else {
 					if !g.CheckConsumer(*part.ConsumerID) {
-						err = getPart.UpdateGroupConsumer(g.GroupId, ConsumerGroup.NewConsumer(*part.ConsumerID, CgId, *part.ConsumerTimeoutSession, *part.ConsumerMaxReturnMessageSize, *part.ConsumerMaxReturnMessageEntries))
+						err = getPart.UpdateGroupConsumer(g.GroupId, ConsumerGroup.NewConsumer(*part.ConsumerID, CgID, *part.ConsumerTimeoutSession, *part.ConsumerMaxReturnMessageSize, *part.ConsumerMaxReturnMessageEntries))
 						if err != nil {
 							Log.ERROR("updateGroupConsumer False", err.Error())
 						}
@@ -809,7 +857,7 @@ func (p *PartitionsController) UpdateCg(CgId string, req *api.CheckSourceTermRes
 	return nil
 }
 
-func (p *PartitionsController) UpdateTp(t string, UpdateReq *api.CheckSourceTermResponse) error {
+func (p *PartitionsController) UpdateTp(bkID, t string, UpdateReq *api.CheckSourceTermResponse) error {
 	// 检查响应模式是否为成功，以及 TopicData 是否为 nil
 	if UpdateReq.Response.Mode != api.Response_Success || UpdateReq.TopicData == nil || UpdateReq.TopicData.FcParts == nil {
 		return Err.ErrRequestIllegal
@@ -824,7 +872,7 @@ func (p *PartitionsController) UpdateTp(t string, UpdateReq *api.CheckSourceTerm
 	if !ok {
 		for _, part := range UpdateReq.TopicData.FcParts {
 			for _, bkData := range part.Part.Brokers {
-				if bkData.Id == MqCredentials.Id {
+				if bkData.Id == bkID {
 					goto Success
 				}
 			}
@@ -877,7 +925,7 @@ func (p *PartitionsController) UpdateTp(t string, UpdateReq *api.CheckSourceTerm
 	// 遍历请求的 TopicData 中的分区和 broker 数据
 	for _, part := range UpdateReq.TopicData.FcParts {
 		for _, brokerData := range part.Part.Brokers {
-			if brokerData.Id == MqCredentials.Id {
+			if brokerData.Id == bkID {
 				goto Found
 			}
 		}
@@ -951,12 +999,12 @@ func (s *broker) PushMessage(ctx context.Context, req *api.PushMessageRequest) (
 		return &api.PushMessageResponse{Response: ErrToResponse(err)}, nil
 	}
 	termSelf, GetTopicTermErr := s.PartitionsController.GetTopicTerm(req.Topic)
-	res, CheckSrcTermErr := s.CheckSourceTermCall(ctx, &api.CheckSourceTermRequest{Self: MqCredentials, TopicData: &api.CheckSourceTermRequest_TopicCheck{Topic: req.Topic, TopicTerm: termSelf}, ConsumerData: nil})
+	res, CheckSrcTermErr := s.CheckSourceTermCall(ctx, &api.CheckSourceTermRequest{Self: s.mqCredentials, TopicData: &api.CheckSourceTermRequest_TopicCheck{Topic: req.Topic, TopicTerm: termSelf}, ConsumerData: nil})
 	if CheckSrcTermErr != nil {
 		return &api.PushMessageResponse{Response: ErrToResponse(CheckSrcTermErr)}, nil
 	}
 	if res.TopicTerm != termSelf {
-		err = s.PartitionsController.UpdateTp(req.Topic, res)
+		err = s.PartitionsController.UpdateTp(s.ID, req.Topic, res)
 		if err != nil {
 			return &api.PushMessageResponse{Response: ErrToResponse(err)}, nil
 		} else {
@@ -994,7 +1042,7 @@ func (s *broker) Heartbeat(_ context.Context, req *api.MQHeartBeatData) (*api.He
 	case api.Credentials_Broker:
 		if s.MetaDataController == nil {
 			return &api.HeartBeatResponseData{
-				Response: ResponseErrSourceNotExist(),
+				Response: ResponseErrNotLeader(),
 			}, nil
 		} else {
 			ret := &api.HeartBeatResponseData{
