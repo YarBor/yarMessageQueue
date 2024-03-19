@@ -187,6 +187,7 @@ func (s *broker) goSendHeartbeat() {
 				time.Sleep(time.Duration(s.RequestTimeoutSessionsMs) * time.Millisecond)
 			}
 		next:
+			time.Sleep(50 * time.Millisecond)
 		}
 	}
 }
@@ -344,12 +345,10 @@ func newBroker(option *BrokerOptions) (*broker, error) {
 	}
 	bk.RaftServer, _ = RaftServer.MakeRaftServer()
 	// raft server
-	_RaftInfo := option.data["RaftServerAddr"].(map[string]interface{})
-	for k, v := range _RaftInfo {
-		if !bk.RaftServer.SetRaftServerInfo(k, v.(string)) {
-			return nil, Err.ErrRequestIllegal
-		}
+	if !bk.RaftServer.SetRaftServerInfo(bk.ID, option.data["RaftServerAddr"].(map[string]interface{})["Url"].(string)) {
+		return nil, Err.ErrRequestIllegal
 	}
+
 	if ok {
 		bk.MetaDataController = NewMetaDataController(MDpeers...)
 		d := make([]struct {

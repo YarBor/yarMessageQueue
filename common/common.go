@@ -1,7 +1,6 @@
 package common
 
 import (
-	"MqServer/Random"
 	"fmt"
 	"net"
 	"strconv"
@@ -32,10 +31,7 @@ func IsMetaDataServer(i bool) BuildOptions {
 	}
 }
 
-func RaftServerAddr(ID, IP, Port string) BuildOptions {
-	if ID == "" {
-		ID = Random.RandStringBytes(16)
-	}
+func RaftServerAddr(IP, Port string) BuildOptions {
 	return func() (string, interface{}, error) {
 		if net.ParseIP(IP) == nil {
 			return "", nil, fmt.Errorf("Illegal IP address")
@@ -44,7 +40,7 @@ func RaftServerAddr(ID, IP, Port string) BuildOptions {
 		if err != nil || portNum < 0 || portNum > 65535 {
 			return "", nil, fmt.Errorf("Illegal Port Number :%s", Port)
 		}
-		return "RaftServerAddr", map[string]interface{}{ID: IP + ":" + Port}, nil
+		return "RaftServerAddr", map[string]interface{}{"Url": IP + ":" + Port}, nil
 	}
 }
 

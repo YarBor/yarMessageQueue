@@ -290,7 +290,7 @@ func (mdc *MetaDataController) GetConsumerGroupTermDiff(Src map[string]int32) (m
 }
 
 func (mdc *MetaDataController) KeepBrokersAlive(id string) error {
-	if mdc.IsLeader() == false {
+	if !mdc.IsLeader() {
 		return Err.ErrRequestNotLeader
 	}
 	err, _ := mdc.commit(KeepAlive, id)
@@ -693,9 +693,9 @@ func (mdc *MetaDataController) Handle(command interface{}) (err error, retData i
 			panic("KeepAlive false ")
 		}
 		mdc.MD.bkMu.RLock()
-		bk, ok := mdc.MD.Brokers[p]
+		bk, okFind := mdc.MD.Brokers[p]
 		mdc.MD.bkMu.RUnlock()
-		if !ok {
+		if !okFind {
 			return Err.ErrSourceNotExist, nil
 		} else {
 			bk.ResetTimeoutTime()
@@ -2525,6 +2525,9 @@ func (mdc *MetaDataController) SetBrokerAlive(ID string) error {
 }
 
 func (mdc *MetaDataController) ToGetJson() string {
+	if mdc == nil {
+		return "MDC Not Set"
+	}
 	mdc.mu.Lock()
 	defer mdc.mu.Unlock()
 	data, _ := json.Marshal(mdc.MD)

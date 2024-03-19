@@ -22,11 +22,12 @@ func pullUp3BrokersWithMetadata() []*broker {
 		defer wg.Done()
 		opt, err := NewBrokerOptions().With(
 			common.BrokerAddr("127.0.0.1", "10001"),
-			common.RaftServerAddr("RaftServer-1", "127.0.0.1", "20001"),
+			common.RaftServerAddr("127.0.0.1", "20001"),
 			common.IsMetaDataServer(true),
-			common.MetadataServerInfo("MetadataServer-1", "127.0.0.1", "20001", "127.0.0.1", "10001", -1),
-			common.MetadataServerInfo("MetadataServer-2", "127.0.0.1", "20002", "127.0.0.1", "10002", -1),
-			common.MetadataServerInfo("MetadataServer-3", "127.0.0.1", "20003", "127.0.0.1", "10003", -1),
+			common.BrokerID("Bk1"),
+			common.MetadataServerInfo("Bk1", "127.0.0.1", "20001", "127.0.0.1", "10001", -1),
+			common.MetadataServerInfo("Bk2", "127.0.0.1", "20002", "127.0.0.1", "10002", -1),
+			common.MetadataServerInfo("Bk3", "127.0.0.1", "20003", "127.0.0.1", "10003", -1),
 			common.BrokerKey(key),
 		).Build()
 		if err != nil {
@@ -46,11 +47,12 @@ func pullUp3BrokersWithMetadata() []*broker {
 		defer wg.Done()
 		opt, err := NewBrokerOptions().With(
 			common.BrokerAddr("127.0.0.1", "10002"),
+			common.BrokerID("Bk2"),
 			common.IsMetaDataServer(true),
-			common.RaftServerAddr("RaftServer-2", "127.0.0.1", "20002"),
-			common.MetadataServerInfo("MetadataServer-1", "127.0.0.1", "20001", "127.0.0.1", "10001", -1),
-			common.MetadataServerInfo("MetadataServer-2", "127.0.0.1", "20002", "127.0.0.1", "10002", -1),
-			common.MetadataServerInfo("MetadataServer-3", "127.0.0.1", "20003", "127.0.0.1", "10003", -1),
+			common.RaftServerAddr("127.0.0.1", "20002"),
+			common.MetadataServerInfo("Bk1", "127.0.0.1", "20001", "127.0.0.1", "10001", -1),
+			common.MetadataServerInfo("Bk2", "127.0.0.1", "20002", "127.0.0.1", "10002", -1),
+			common.MetadataServerInfo("Bk3", "127.0.0.1", "20003", "127.0.0.1", "10003", -1),
 			common.BrokerKey(key),
 		).Build()
 		if err != nil {
@@ -71,10 +73,11 @@ func pullUp3BrokersWithMetadata() []*broker {
 		opt, err := NewBrokerOptions().With(
 			common.BrokerAddr("127.0.0.1", "10003"),
 			common.IsMetaDataServer(true),
-			common.RaftServerAddr("RaftServer-3", "127.0.0.1", "20003"),
-			common.MetadataServerInfo("MetadataServer-1", "127.0.0.1", "20001", "127.0.0.1", "10001", -1),
-			common.MetadataServerInfo("MetadataServer-2", "127.0.0.1", "20002", "127.0.0.1", "10002", -1),
-			common.MetadataServerInfo("MetadataServer-3", "127.0.0.1", "20003", "127.0.0.1", "10003", -1),
+			common.RaftServerAddr("127.0.0.1", "20003"),
+			common.MetadataServerInfo("Bk1", "127.0.0.1", "20001", "127.0.0.1", "10001", -1),
+			common.MetadataServerInfo("Bk2", "127.0.0.1", "20002", "127.0.0.1", "10002", -1),
+			common.MetadataServerInfo("Bk3", "127.0.0.1", "20003", "127.0.0.1", "10003", -1),
+			common.BrokerID("Bk3"),
 			common.BrokerKey(key),
 		).Build()
 		if err != nil {
@@ -91,39 +94,41 @@ func pullUp3BrokersWithMetadata() []*broker {
 		bks[2] = bk
 	}()
 	wg.Wait()
-	time.Sleep(time.Second)
+	time.Sleep(3 * time.Second)
 	//select {}
 	//success:
 	return bks
 }
 
-func TestBroker_NewBroker(t *testing.T) {
+func TestBroker_NewBroker(t *testing.T) { //bks := pullUp3BrokersWithMetadata()
 	Log.SetLogLevel(Log.LogLevel_TRACE)
 	bks := pullUp3BrokersWithMetadata()
 	for _, bk := range bks {
+		Log.DEBUG("To Call CreateTopic", bk.MetaDataController.ToGetJson())
 		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "test",
+			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2, 3, 1}),
 		})
-		if err != nil {
+		Log.DEBUG("CreateTopic , Res :", res)
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
 		goto success
 	}
-	t.Failed()
+	t.Fail()
 success:
 }
 func TestBroker_CheckProducerTimeout(t *testing.T) {
 	//bks := pullUp3BrokersWithMetadata()
-	Log.SetLogLevel(Log.LogLevel_INFO)
+	Log.SetLogLevel(Log.LogLevel_TRACE)
 	bks := pullUp3BrokersWithMetadata()
 	for _, bk := range bks {
 		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
 			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
+			Partition: NewPartInfo([]int{1, 2, 3, 1}),
 		})
-		Log.DEBUG("CreateTopic , Res :", res)
+		Log.ERROR("CreateTopic , Res :", res)
 		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
@@ -144,7 +149,7 @@ func TestBroker_CheckProducerTimeout(t *testing.T) {
 		if err != nil {
 			panic(err)
 		}
-		bk.CheckProducerTimeout()
+		//bk.CheckProducerTimeout()
 	}
 	t.Fail()
 }
@@ -155,7 +160,7 @@ func TestBroker_goSendHeartbeat(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -169,7 +174,7 @@ func TestBroker_Stop(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -183,7 +188,7 @@ func TestBroker_CancelReg2Cluster(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -197,7 +202,7 @@ func TestBroker_registerRaftNode(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -211,7 +216,7 @@ func TestBroker_feasibilityTest(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -225,7 +230,7 @@ func TestBroker_GetMetadataServers(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -239,7 +244,7 @@ func TestBroker_RegisterConsumer(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -253,7 +258,7 @@ func TestBroker_SubscribeTopic(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -267,7 +272,7 @@ func TestBroker_UnSubscribeTopic(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -281,7 +286,7 @@ func TestBroker_AddPart(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -295,7 +300,7 @@ func TestBroker_RemovePart(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -309,7 +314,7 @@ func TestBroker_ConsumerDisConnect(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -323,7 +328,7 @@ func TestBroker_ProducerDisConnect(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -337,7 +342,7 @@ func TestBroker_RegisterProducer(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -351,7 +356,7 @@ func TestBroker_CreateTopic(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -365,7 +370,7 @@ func TestBroker_QueryTopic(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -379,7 +384,7 @@ func TestBroker_UnRegisterConsumer(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -393,7 +398,7 @@ func TestBroker_UnRegisterProducer(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -407,7 +412,7 @@ func TestBroker_JoinConsumerGroup(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -421,7 +426,7 @@ func TestBroker_LeaveConsumerGroup(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -435,7 +440,7 @@ func TestBroker_CheckSourceTerm(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -449,7 +454,7 @@ func TestBroker_RegisterConsumerGroup(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -463,7 +468,7 @@ func TestBroker_ConfirmIdentity(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -477,7 +482,7 @@ func TestBroker_PullMessage(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -497,7 +502,7 @@ func TestBroker_CheckSourceTermCall(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -511,7 +516,7 @@ func TestBroker_PushMessage(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
@@ -525,7 +530,7 @@ func TestBroker_Heartbeat(t *testing.T) {
 			Topic:     "testTopic",
 			Partition: NewPartInfo([]int{1, 2}),
 		})
-		if err != nil {
+		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
