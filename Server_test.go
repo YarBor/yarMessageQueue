@@ -391,6 +391,11 @@ func TestBroker_SubscribeTopic(t *testing.T) {
 				GroupTerm:  conG.GroupTerm,
 			},
 		})
+		up, err10 := bk.UnRegisterProducer(context.Background(), &api.UnRegisterProducerRequest{Credential: pro.Credential})
+		if err10 != nil || up.Response.Mode != api.Response_Success {
+			t.Fail()
+			panic(nil)
+		}
 		Log.DEBUG(checkdata, err5)
 		return
 	}
@@ -398,60 +403,54 @@ func TestBroker_SubscribeTopic(t *testing.T) {
 
 func TestBroker_AddPart(t *testing.T) {
 	bks := pullUp3BrokersWithMetadata()
+	creatReq := &api.CreateTopicRequest{
+		Topic:     "testTopic",
+		Partition: NewPartInfo([]int{1, 2}),
+	}
 	for _, bk := range bks {
-		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
-		})
+		res, err := bk.CreateTopic(context.Background(), creatReq)
 		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
-		bk.AddPart(context.Background(), &api.AddPartRequest{})
+		ress, err1 := bk.AddPart(context.Background(), &api.AddPartRequest{
+			Cred: bk.mqCredentials,
+			Part: &api.Partition{
+				Topic:    "testTopic",
+				PartName: "AddPart",
+				Brokers: append(make([]*api.BrokerData, 0), &api.BrokerData{
+					Id:  "Bk2",
+					Url: "",
+				}),
+			},
+		})
+		if err1 != nil || ress.Response.Mode != api.Response_Success {
+			t.Fail()
+		}
+		return
 	}
 }
 func TestBroker_RemovePart(t *testing.T) {
 	bks := pullUp3BrokersWithMetadata()
-	for _, bk := range bks {
-		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
-		})
-		if err != nil || res.Response.Mode != api.Response_Success {
-			continue
-		}
-		Log.DEBUG(res)
-		bk.RemovePart(context.Background(), &api.RemovePartRequest{})
+	creatReq := &api.CreateTopicRequest{
+		Topic:     "testTopic",
+		Partition: NewPartInfo([]int{1, 2}),
 	}
-}
-
-func TestBroker_UnRegisterConsumer(t *testing.T) {
-	bks := pullUp3BrokersWithMetadata()
 	for _, bk := range bks {
-		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
-		})
+		res, err := bk.CreateTopic(context.Background(), creatReq)
 		if err != nil || res.Response.Mode != api.Response_Success {
 			continue
 		}
 		Log.DEBUG(res)
-		bk.UnRegisterConsumer(context.Background(), &api.UnRegisterConsumerRequest{})
-	}
-}
-
-func TestBroker_UnRegisterProducer(t *testing.T) {
-	bks := pullUp3BrokersWithMetadata()
-	for _, bk := range bks {
-		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
+		ress, err1 := bk.RemovePart(context.Background(), &api.RemovePartRequest{
+			Cred:  bk.mqCredentials,
+			Topic: "testTopic",
+			Part:  creatReq.Partition[0].PartitionName,
 		})
-		if err != nil || res.Response.Mode != api.Response_Success {
-			continue
+		if err1 != nil || ress.Response.Mode != api.Response_Success {
+			t.Fail()
 		}
-		Log.DEBUG(res)
-		bk.UnRegisterProducer(context.Background(), &api.UnRegisterProducerRequest{})
+		return
 	}
 }
 

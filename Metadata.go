@@ -1359,7 +1359,6 @@ func (mdc *MetaDataController) Handle(command interface{}) (err error, retData i
 				})
 			}
 		} else {
-			println(1)
 		}
 		var (
 			needReBalance []string
@@ -1371,7 +1370,12 @@ func (mdc *MetaDataController) Handle(command interface{}) (err error, retData i
 		mdc.MD.bkMu.RLock()
 		for _, bk := range data.Brokers {
 			if bk != nil {
-				if i, ok := mdc.MD.Brokers[bk.ID]; !ok || i.Url != bk.Url {
+				if i, ok := mdc.MD.Brokers[bk.ID]; !ok {
+					err = Err.ErrSourceNotExist
+					break
+				} else if "" == bk.Url {
+					bk.Url = i.Url
+				} else {
 					err = Err.ErrSourceNotExist
 					break
 				}
