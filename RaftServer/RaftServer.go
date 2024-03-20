@@ -144,7 +144,7 @@ func (rn *RaftNode) GetNewCommandId() uint32 {
 }
 
 func (rn *RaftNode) Commit(command interface{}) (error, interface{}) {
-	mqLog.DEBUG("RaftNode) Commit Call", command)
+	mqLog.INFO("RaftNode) Commit Call", command)
 	entry := Entry{
 		Id:  rn.GetNewCommandId(),
 		Cmd: command,
@@ -240,6 +240,7 @@ func (rn *RaftNode) Start() {
 
 type RaftServer struct {
 	api.UnimplementedRaftCallServer
+	isStop        bool
 	mu            sync.RWMutex
 	server        *grpc.Server
 	listener      net.Listener
@@ -269,6 +270,9 @@ func (rs *RaftServer) Serve() error {
 func (rs *RaftServer) HeartBeat(_ context.Context, arg *api.HeartBeatRequest) (rpl *api.HeartBeatResponse, err error) {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
+	if rs.isStop {
+		return
+	}
 	var rf *Raft
 	if tp, par := arg.GetTopic(), arg.GetPartition(); tp == "" || par == "" {
 		//panic("invalid topic argument and MessageMem argument")
@@ -305,6 +309,9 @@ func (rs *RaftServer) HeartBeat(_ context.Context, arg *api.HeartBeatRequest) (r
 func (rs *RaftServer) RequestPreVote(_ context.Context, arg *api.RequestPreVoteRequest) (rpl *api.RequestPreVoteResponse, err error) {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
+	if rs.isStop {
+		return
+	}
 	var rf *Raft
 
 	if tp, par := arg.GetTopic(), arg.GetPartition(); tp == "" || par == "" {
@@ -347,6 +354,9 @@ func (rs *RaftServer) RequestPreVote(_ context.Context, arg *api.RequestPreVoteR
 func (rs *RaftServer) RequestVote(_ context.Context, arg *api.RequestVoteRequest) (rpl *api.RequestVoteResponse, err error) {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
+	if rs.isStop {
+		return
+	}
 	var rf *Raft
 	if tp, par := arg.GetTopic(), arg.GetPartition(); tp == "" || par == "" {
 		//panic("invalid topic argument and MessageMem argument")
@@ -423,6 +433,10 @@ func (rs *RaftServer) RegisterRfNode(T, P string, ch CommandHandler, sh Snapshot
 		return nil, Err.ErrRequestIllegal
 	}
 	rs.mu.Lock()
+	if false == rs.isStop {
+		rs.mu.Unlock()
+		return nil, Err.ErrRequestServerNotServe
+	}
 	_, ok := rs.rfs[T]
 	if !ok {
 		rs.rfs[T] = make(map[string]*RaftNode)
@@ -504,8 +518,12 @@ func (rs *RaftServer) RegisterMetadataRaft(url_IDs []struct {
 }
 
 func (rs *RaftServer) Stop() {
-	rs.mu.Lock()
-	defer rs.mu.Unlock()
+	rs.mu.RLock()
+	defer rs.mu.RUnlock()
+	if rs.isStop {
+		return
+	}
+	rs.isStop = true
 	rfnode := make([]*RaftNode, 0)
 	for _, i := range rs.rfs {
 		for _, j := range i {

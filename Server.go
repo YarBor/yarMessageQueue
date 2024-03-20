@@ -76,6 +76,7 @@ func (s *broker) CheckProducerTimeout() {
 		for _, key := range keysToDelete {
 			s.ProducerIDCache.Delete(key)
 		}
+		time.Sleep(time.Duration(s.CacheStayTimeMs) * time.Millisecond)
 	}
 }
 
@@ -130,12 +131,14 @@ func (s *broker) goSendHeartbeat() {
 						}
 					}
 				}
+				//Log.DEBUG(s.ID, " SendHeartbeat To", MDpeer.ID)
 				//s.PartitionsController.ttMu.RUnlock()
 				res, err := MDpeer.Client.Heartbeat(context.Background(), &req)
-				if err != nil {
-					Log.DEBUG("Heartbeat Error ", err.Error())
+				if err != nil || res.Response.Mode != api.Response_Success {
+					Log.DEBUG(s.ID, " SendHeartbeat To", MDpeer.ID, " Err")
 					goto next
 				} else {
+					Log.DEBUG(s.ID, " SendHeartbeat To", MDpeer.ID, " Return ", res)
 					s.MetadataLeaderID.Store(&ID)
 				}
 				if res.Response.Mode != api.Response_Success {
@@ -723,7 +726,8 @@ func (s *broker) checkProducer(cxt context.Context, Credential *api.Credentials)
 	}
 	if _, ok := s.ProducerIDCache.Load(Credential.Id); !ok {
 		f, set := s.GetMetadataServers()
-		for {
+		l := len(s.MetadataPeers)
+		for i := 0; i < l; i++ {
 			select {
 			case <-cxt.Done():
 				return Err.ErrRequestTimeout
@@ -736,16 +740,16 @@ func (s *broker) checkProducer(cxt context.Context, Credential *api.Credentials)
 			})
 			if err != nil {
 				Log.ERROR("Call False:", err.Error())
-			} else if res.Response.Mode != api.Response_Success {
+			} else if res.Response.Mode == api.Response_Success {
 				set()
-				break
+				s.ProducerIDCache.Store(Credential.Id, time.Now().UnixMilli()+int64(s.CacheStayTimeMs))
+				return nil
 			} else {
-				Log.WARN(err.Error())
+				Log.WARN("CheckProducer Failed:", res)
 			}
 		}
-		s.ProducerIDCache.Store(Credential.Id, time.Now().UnixMilli()+int64(s.CacheStayTimeMs))
 	}
-	return nil
+	return Err.ErrSourceNotExist
 }
 
 func (s *broker) CheckSourceTermCall(ctx context.Context, req *api.CheckSourceTermRequest) (res *api.CheckSourceTermResponse, err error) {

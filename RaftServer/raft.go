@@ -201,7 +201,7 @@ type Raft struct {
 	pMsgStore           *MsgStore // nil
 	pMsgStoreCreateLock sync.Mutex
 
-	KilledChan chan bool
+	killedChan chan bool
 
 	applyChan chan ApplyMsg
 
@@ -303,13 +303,13 @@ func (rf *Raft) registeHeartBeat(index int) {
 	for !rf.killed() {
 	restart:
 		select {
-		case <-rf.KilledChan:
+		case <-rf.killedChan:
 			return
 		case <-rf.raftPeers[index].BeginHeartBeat:
 		}
 		for {
 			select {
-			case <-rf.KilledChan:
+			case <-rf.killedChan:
 				return
 			case <-rf.raftPeers[index].StopHeartBeat:
 				goto restart
@@ -1296,9 +1296,9 @@ func (rf *Raft) Kill() {
 	atomic.StoreInt32(&rf.dead, 1)
 	rf.Dolog(-1, "killdead")
 	for i := 0; i < 100; i++ {
-		rf.KilledChan <- true
+		rf.killedChan <- true
 	}
-	close(rf.KilledChan)
+	//close(rf.killedChan)
 	rf.wg.Wait()
 	// Your code here, if desired.
 }
@@ -1324,7 +1324,7 @@ func (rf *Raft) ticker() {
 		case LevelFollower:
 			select {
 			case <-rf.levelChangeChan:
-			case <-rf.KilledChan:
+			case <-rf.killedChan:
 				return
 			case <-rf.timeOutChan:
 				atomic.StoreInt32(&rf.isLeaderAlive, 1)
@@ -1337,13 +1337,13 @@ func (rf *Raft) ticker() {
 		case LevelCandidate:
 			select {
 			case <-rf.levelChangeChan:
-			case <-rf.KilledChan:
+			case <-rf.killedChan:
 				return
 			case <-rf.timeOutChan:
 			}
 		case LevelLeader:
 			select {
-			case <-rf.KilledChan:
+			case <-rf.killedChan:
 				return
 			case <-rf.levelChangeChan:
 			case <-rf.timeOutChan:
@@ -1488,7 +1488,7 @@ func Make(peers []*ClientEnd, me int, persister *Persister.Persister, applyCh ch
 	rf.commandLog.Msgs = append(make([]*ApplyMsg, 0), &ApplyMsg{CommandValid: true, Command: nil, CommandIndex: 0, CommandTerm: -1, SnapshotValid: false, Snapshot: nil, SnapshotTerm: 0, SnapshotIndex: 0})
 	rf.commandLog.MsgRwMu = sync.RWMutex{}
 	rf.pMsgStoreCreateLock = sync.Mutex{}
-	rf.KilledChan = make(chan bool, 100)
+	rf.killedChan = make(chan bool, 100)
 	rf.termLock = sync.Mutex{}
 
 	for i := range rf.peers {
@@ -1577,7 +1577,7 @@ func (rf *Raft) committer(applyCh chan ApplyMsg) {
 		peerLogedIndexs := make([]peersLog, len(rf.raftPeers))
 		select {
 		// leader scan followers to deside New TologIndex
-		case <-rf.KilledChan:
+		case <-rf.killedChan:
 			return
 		case <-time.After(25 * time.Millisecond):
 			if rf.getLevel() == LevelLeader {

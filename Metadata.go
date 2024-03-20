@@ -63,8 +63,8 @@ type ProducerMD struct {
 }
 
 const (
-	BrokerMode_BrokerDisconnected = 0
-	BrokerMode_BrokerConnected    = 1
+	BrokerMode_BrokerDisconnected int32 = 0
+	BrokerMode_BrokerConnected    int32 = 1
 )
 
 type BrokerMD struct {
@@ -204,8 +204,6 @@ func (mdc *MetaDataController) SetRaftNode(rf *RaftServer.RaftNode) {
 }
 
 func (mdc *MetaDataController) Stop() {
-	mdc.mu.Lock()
-	defer mdc.mu.Unlock()
 	mdc.isAlive = false
 	mdc.MetaDataRaft.Stop()
 	select {
@@ -449,21 +447,21 @@ func (md *MetaData) SnapShot() []byte {
 }
 
 const (
-	RegisterProducer   = "RegisterProducer     "
-	RegisterConsumer   = "RegisterConsumer     "
-	UnRegisterProducer = "UnRegisterProducer   "
-	UnRegisterConsumer = "UnRegisterConsumer   "
-	CreateTopic        = "CreateTopic          "
-	RegisterConsGroup  = "RegisterConsGroup    "
+	RegisterProducer   = "RegisterProducer"
+	RegisterConsumer   = "RegisterConsumer"
+	UnRegisterProducer = "UnRegisterProducer"
+	UnRegisterConsumer = "UnRegisterConsumer"
+	CreateTopic        = "CreateTopic"
+	RegisterConsGroup  = "RegisterConsGroup"
 	//UnRegisterConsGroup   = "UnRegisterConsGroup  "
-	JoinConsGroup         = "JoinConsGroup        "
-	LeaveConsGroup        = "LeaveConsGroup       "
-	ConsGroupFocalTopic   = "ConsGroupFocalTopic  "
+	JoinConsGroup         = "JoinConsGroup"
+	LeaveConsGroup        = "LeaveConsGroup"
+	ConsGroupFocalTopic   = "ConsGroupFocalTopic"
 	ConsGroupUnFocalTopic = "ConsGroupUnFocalTopic"
 	//DestroyTopic          = "DestroyTopic         "
-	AddPart    = "AddPart              "
-	RemovePart = "RemovePart           "
-	KeepAlive  = "KeepAlive            "
+	AddPart    = "AddPart"
+	RemovePart = "RemovePart"
+	KeepAlive  = "KeepAlive"
 )
 
 func ErrToResponse(err error) *api.Response {
@@ -485,7 +483,7 @@ func ErrToResponse(err error) *api.Response {
 		return ResponseErrTimeout()
 	case errors.Is(err, Err.ErrRequestServerNotServe):
 		return ResponseNotServer()
-	case errors.Is(err, Err.ErrRequestNotLeader):
+	case errors.Is(err, Err.ErrRequestNotLeader), err.Error() == "not leader":
 		return ResponseErrNotLeader()
 	case errors.Is(err, Err.ErrNeedToWait):
 		return ResponseErrNeedToWait()
@@ -500,7 +498,7 @@ type MetadataCommand struct {
 }
 
 func (mdc *MetaDataController) IsLeader() bool {
-	return mdc.MetaDataRaft.IsLeader()
+	return mdc.MetaDataRaft.IsLeader() && mdc.isAlive
 }
 
 func (md *MetaData) CheckTopic(t string) error {
@@ -670,9 +668,6 @@ func (mdc *MetaDataController) RegisterProducer(request *api.RegisterProducerReq
 func (mdc *MetaDataController) Handle(command interface{}) (err error, retData interface{}) {
 	mdc.mu.RLock()
 	defer mdc.mu.RUnlock()
-	defer func(err *error, retData *interface{}) {
-		Log.DEBUG("recv ", command, "return ", *err, *retData)
-	}(&err, &retData)
 	//Log.DEBUG("handle command", command)
 	//println(mdc.ToGetJson(), fmt.Sprintf("%v", command), err, fmt.Sprintf("%v", retData))
 
@@ -686,6 +681,13 @@ func (mdc *MetaDataController) Handle(command interface{}) (err error, retData i
 	ccommand, IsMap := mdCommand.Data.(map[string]interface{})
 	//var err error = nil
 	//var retData interface{} = nil
+
+	defer func(err *error, retData *interface{}) {
+		if mdCommand.Mode != KeepAlive {
+			Log.DEBUG("recv ", mdCommand, "return ", *err, *retData)
+		}
+	}(&err, &retData)
+
 	switch mdCommand.Mode {
 	case KeepAlive:
 		p, ok := mdCommand.Data.(string)
@@ -2440,7 +2442,6 @@ func (mdc *MetaDataController) CheckBrokersAlive() {
 	}
 }
 
-// TODO: go
 func (mdc *MetaDataController) ConsumerDisConnect(info *api.DisConnectInfo) *api.Response {
 	if !mdc.IsLeader() {
 		return ResponseErrNotLeader()

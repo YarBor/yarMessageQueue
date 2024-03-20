@@ -7,7 +7,9 @@ import (
 	"MqServer/api"
 	"MqServer/common"
 	"context"
+	"github.com/stretchr/testify/assert"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -121,7 +123,7 @@ success:
 }
 func TestBroker_CheckProducerTimeout(t *testing.T) {
 	//bks := pullUp3BrokersWithMetadata()
-	Log.SetLogLevel(Log.LogLevel_TRACE)
+	Log.SetLogLevel(Log.LogLevel_DEBUG)
 	bks := pullUp3BrokersWithMetadata()
 	for _, bk := range bks {
 		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
@@ -144,11 +146,13 @@ func TestBroker_CheckProducerTimeout(t *testing.T) {
 		if err != nil {
 			panic(err)
 		}
+		Log.DEBUG("Sleep wait for cache clear ")
 		time.Sleep(time.Duration(bk.CacheStayTimeMs*2) * time.Millisecond)
 		err = bk.checkProducer(context.Background(), p.Credential)
 		if err != nil {
 			panic(err)
 		}
+		return
 		//bk.CheckProducerTimeout()
 	}
 	t.Fail()
@@ -164,7 +168,11 @@ func TestBroker_goSendHeartbeat(t *testing.T) {
 			continue
 		}
 		Log.DEBUG(res)
-		bk.goSendHeartbeat()
+		//bk.goSendHeartbeat()
+		bk.MetaDataController.mu.RLock()
+		for _, md := range bk.MetaDataController.MD.Brokers {
+			assert.Equal(t, BrokerMode_BrokerConnected, atomic.LoadInt32(&md.IsConnect))
+		}
 	}
 }
 func TestBroker_Stop(t *testing.T) {
@@ -178,7 +186,12 @@ func TestBroker_Stop(t *testing.T) {
 			continue
 		}
 		Log.DEBUG(res)
-		bk.Stop()
+	}
+	for _, bk := range bks {
+		err := bk.Stop()
+		if err != nil {
+			panic(err)
+		}
 	}
 }
 func TestBroker_CancelReg2Cluster(t *testing.T) {
