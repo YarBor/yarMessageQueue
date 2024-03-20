@@ -235,8 +235,11 @@ func (c *PartitionsController) GetAllPart() []*Partition {
 }
 func (c *PartitionsController) Stop() {
 	c.ttMu.Lock()
+	defer c.ttMu.Unlock()
 	c.cgtMu.Lock()
+	defer c.cgtMu.Unlock()
 	c.partsMu.Lock()
+	defer c.partsMu.Unlock()
 	for _, ps := range c.P {
 		for _, partition := range *ps {
 			partition.Stop()

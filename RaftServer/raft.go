@@ -1296,7 +1296,10 @@ func (rf *Raft) Kill() {
 	atomic.StoreInt32(&rf.dead, 1)
 	rf.Dolog(-1, "killdead")
 	for i := 0; i < 100; i++ {
-		rf.killedChan <- true
+		select {
+		case rf.killedChan <- true:
+		default:
+		}
 	}
 	//close(rf.killedChan)
 	rf.wg.Wait()

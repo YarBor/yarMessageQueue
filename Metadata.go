@@ -939,12 +939,12 @@ func (mdc *MetaDataController) Handle(command interface{}) (err error, retData i
 
 	case
 		LeaveConsGroup:
-		data, ok2 := mdCommand.Data.(*struct {
+		data, ok2 := mdCommand.Data.(struct {
 			GroupID string
 			SelfID  string
 		})
 		if !ok2 {
-			data = &struct {
+			data = struct {
 				GroupID string
 				SelfID  string
 			}{GroupID: ccommand["GroupID"].(string), SelfID: ccommand["SelfID"].(string)}

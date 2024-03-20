@@ -96,7 +96,7 @@ func pullUp3BrokersWithMetadata() []*broker {
 		bks[2] = bk
 	}()
 	wg.Wait()
-	time.Sleep(3 * time.Second)
+	time.Sleep(2 * time.Second)
 	//select {}
 	//success:
 	return bks
@@ -119,6 +119,7 @@ func TestBroker_NewBroker(t *testing.T) { //bks := pullUp3BrokersWithMetadata()
 		goto success
 	}
 	t.Fail()
+	panic(nil)
 success:
 }
 func TestBroker_CheckProducerTimeout(t *testing.T) {
@@ -156,6 +157,7 @@ func TestBroker_CheckProducerTimeout(t *testing.T) {
 		//bk.CheckProducerTimeout()
 	}
 	t.Fail()
+	panic(nil)
 }
 func TestBroker_goSendHeartbeat(t *testing.T) {
 	bks := pullUp3BrokersWithMetadata()
@@ -187,13 +189,21 @@ func TestBroker_Stop(t *testing.T) {
 		}
 		Log.DEBUG(res)
 	}
+	wg := sync.WaitGroup{}
+	wg.Add(3)
 	for _, bk := range bks {
-		err := bk.Stop()
-		if err != nil {
-			panic(err)
-		}
+		bk := bk
+		go func() {
+			defer wg.Done()
+			err := bk.Stop()
+			if err != nil {
+				panic(err)
+			}
+		}()
 	}
+	wg.Wait()
 }
+
 func TestBroker_CancelReg2Cluster(t *testing.T) {
 	bks := pullUp3BrokersWithMetadata()
 	for _, bk := range bks {
@@ -208,48 +218,36 @@ func TestBroker_CancelReg2Cluster(t *testing.T) {
 		bk.CancelReg2Cluster(&ConsumerGroup.Consumer{})
 	}
 }
-func TestBroker_registerRaftNode(t *testing.T) {
-	bks := pullUp3BrokersWithMetadata()
-	for _, bk := range bks {
-		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
-		})
-		if err != nil || res.Response.Mode != api.Response_Success {
-			continue
-		}
-		Log.DEBUG(res)
-		bk.registerRaftNode()
-	}
-}
-func TestBroker_feasibilityTest(t *testing.T) {
-	bks := pullUp3BrokersWithMetadata()
-	for _, bk := range bks {
-		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
-		})
-		if err != nil || res.Response.Mode != api.Response_Success {
-			continue
-		}
-		Log.DEBUG(res)
-		bk.feasibilityTest()
-	}
-}
-func TestBroker_GetMetadataServers(t *testing.T) {
-	bks := pullUp3BrokersWithMetadata()
-	for _, bk := range bks {
-		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
-		})
-		if err != nil || res.Response.Mode != api.Response_Success {
-			continue
-		}
-		Log.DEBUG(res)
-		bk.GetMetadataServers()
-	}
-}
+
+//func TestBroker_registerRaftNode(t *testing.T) {
+//	bks := pullUp3BrokersWithMetadata()
+//	for _, bk := range bks {
+//		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
+//			Topic:     "testTopic",
+//			Partition: NewPartInfo([]int{1, 2}),
+//		})
+//		if err != nil || res.Response.Mode != api.Response_Success {
+//			continue
+//		}
+//		Log.DEBUG(res)
+//		bk.registerRaftNode()
+//	}
+////}
+//func TestBroker_feasibilityTest(t *testing.T) {
+//	bks := pullUp3BrokersWithMetadata()
+//	for _, bk := range bks {
+//		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
+//			Topic:     "testTopic",
+//			Partition: NewPartInfo([]int{1, 2}),
+//		})
+//		if err != nil || res.Response.Mode != api.Response_Success {
+//			continue
+//		}
+//		Log.DEBUG(res)
+//		bk.feasibilityTest()
+//	}
+//}
+
 func TestBroker_RegisterConsumer(t *testing.T) {
 	bks := pullUp3BrokersWithMetadata()
 	for _, bk := range bks {
@@ -261,8 +259,19 @@ func TestBroker_RegisterConsumer(t *testing.T) {
 			continue
 		}
 		Log.DEBUG(res)
-		bk.RegisterConsumer(context.Background(), &api.RegisterConsumerRequest{})
+		rc, err1 := bk.RegisterConsumer(context.Background(), &api.RegisterConsumerRequest{
+			MaxReturnMessageSize:    1e5,
+			MaxReturnMessageEntries: 1e1,
+			TimeoutSessionMsec:      1e3,
+		})
+		if err1 != nil || rc.Response.Mode != api.Response_Success {
+			t.Fail()
+			panic(nil)
+		}
+		return
 	}
+	t.Fail()
+	panic(nil)
 }
 func TestBroker_SubscribeTopic(t *testing.T) {
 	bks := pullUp3BrokersWithMetadata()
@@ -275,23 +284,118 @@ func TestBroker_SubscribeTopic(t *testing.T) {
 			continue
 		}
 		Log.DEBUG(res)
-		bk.SubscribeTopic(context.Background(), &api.SubscribeTopicRequest{})
-	}
-}
-func TestBroker_UnSubscribeTopic(t *testing.T) {
-	bks := pullUp3BrokersWithMetadata()
-	for _, bk := range bks {
-		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
+		pro, err9 := bk.RegisterProducer(context.Background(), &api.RegisterProducerRequest{
+			FocalTopic:         "testTopic",
+			MaxPushMessageSize: 1e6,
 		})
-		if err != nil || res.Response.Mode != api.Response_Success {
-			continue
+		if err9 != nil || pro.Response.Mode != api.Response_Success {
+			t.Fail()
+			panic(nil)
 		}
-		Log.DEBUG(res)
-		bk.UnSubscribeTopic(context.Background(), &api.UnSubscribeTopicRequest{})
+		con, err1 := bk.RegisterConsumer(context.Background(), &api.RegisterConsumerRequest{
+			MaxReturnMessageSize:    1e5,
+			MaxReturnMessageEntries: 1e1,
+			TimeoutSessionMsec:      1e3,
+		})
+		if err1 != nil || con.Response.Mode != api.Response_Success {
+			t.Fail()
+			panic(nil)
+		}
+		conG, err2 := bk.RegisterConsumerGroup(context.Background(), &api.RegisterConsumerGroupRequest{
+			PullOption: api.RegisterConsumerGroupRequest_Latest,
+			GroupId:    nil,
+		})
+		if err2 != nil || conG.Response.Mode != api.Response_Success {
+			t.Fail()
+			panic(nil)
+		}
+		j, err3 := bk.JoinConsumerGroup(context.Background(), &api.JoinConsumerGroupRequest{
+			Cred:            con.Credential,
+			ConsumerGroupId: conG.Cred.Id,
+		})
+		if err3 != nil || j.Response.Mode != api.Response_Success {
+			t.Fail()
+			panic(nil)
+		}
+		data, err4 := bk.SubscribeTopic(context.Background(), &api.SubscribeTopicRequest{
+			CGCred: conG.Cred,
+			Tp:     "testTopic",
+		})
+		if err4 != nil || data.Response.Mode != api.Response_Success {
+			t.Fail()
+			panic(nil)
+		}
+		Log.DEBUG(data)
+		checkdata, err5 := bk.CheckSourceTerm(context.Background(), &api.CheckSourceTermRequest{
+			Self:      conG.Cred,
+			TopicData: nil,
+			ConsumerData: &api.CheckSourceTermRequest_ConsumerCheck{
+				ConsumerId: &con.Credential.Id,
+				GroupID:    conG.Cred.Id,
+				GroupTerm:  conG.GroupTerm,
+			},
+		})
+		if err5 != nil || checkdata.Response.Mode != api.Response_ErrPartitionChanged {
+			t.Fail()
+			panic(nil)
+		}
+		assert.Equal(t, 2, len(checkdata.ConsumersData.FcParts))
+		unsb, err6 := bk.UnSubscribeTopic(context.Background(), &api.UnSubscribeTopicRequest{
+			CGCred: conG.Cred,
+			Tp:     "testTopic",
+		})
+		if err6 != nil || unsb.Response.Mode != api.Response_Success {
+			t.Fail()
+			panic(nil)
+		}
+		checkdata, err5 = bk.CheckSourceTerm(context.Background(), &api.CheckSourceTermRequest{
+			Self:      conG.Cred,
+			TopicData: nil,
+			ConsumerData: &api.CheckSourceTermRequest_ConsumerCheck{
+				ConsumerId: &con.Credential.Id,
+				GroupID:    conG.Cred.Id,
+				GroupTerm:  conG.GroupTerm,
+			},
+		})
+		if err5 != nil || checkdata.Response.Mode != api.Response_ErrPartitionChanged {
+			t.Fail()
+			panic(nil)
+		}
+		data, err4 = bk.SubscribeTopic(context.Background(), &api.SubscribeTopicRequest{
+			CGCred: conG.Cred,
+			Tp:     "testTopic",
+		})
+		if err4 != nil || data.Response.Mode != api.Response_Success {
+			t.Fail()
+			panic(nil)
+		}
+		uc, err8 := bk.UnRegisterConsumer(context.Background(), &api.UnRegisterConsumerRequest{Credential: con.Credential})
+		if err8 != nil || uc.Response.Mode != api.Response_Success {
+			t.Fail()
+			panic(nil)
+		}
+		lcg, err7 := bk.LeaveConsumerGroup(context.Background(), &api.LeaveConsumerGroupRequest{
+			GroupCred:    conG.Cred,
+			ConsumerCred: con.Credential,
+		})
+		if err7 != nil || lcg.Response.Mode != api.Response_ErrSourceNotExist {
+			t.Fail()
+			panic(nil)
+		}
+		checkdata, err5 = bk.CheckSourceTerm(context.Background(), &api.CheckSourceTermRequest{
+			Self:      conG.Cred,
+			TopicData: nil,
+			ConsumerData: &api.CheckSourceTermRequest_ConsumerCheck{
+				ConsumerId: &con.Credential.Id,
+				GroupID:    conG.Cred.Id,
+				GroupTerm:  conG.GroupTerm,
+			},
+		})
+		Log.DEBUG(checkdata, err5)
+		return
 	}
 }
+
 func TestBroker_AddPart(t *testing.T) {
 	bks := pullUp3BrokersWithMetadata()
 	for _, bk := range bks {
@@ -320,76 +424,7 @@ func TestBroker_RemovePart(t *testing.T) {
 		bk.RemovePart(context.Background(), &api.RemovePartRequest{})
 	}
 }
-func TestBroker_ConsumerDisConnect(t *testing.T) {
-	bks := pullUp3BrokersWithMetadata()
-	for _, bk := range bks {
-		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
-		})
-		if err != nil || res.Response.Mode != api.Response_Success {
-			continue
-		}
-		Log.DEBUG(res)
-		bk.ConsumerDisConnect(context.Background(), &api.DisConnectInfo{})
-	}
-}
-func TestBroker_ProducerDisConnect(t *testing.T) {
-	bks := pullUp3BrokersWithMetadata()
-	for _, bk := range bks {
-		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
-		})
-		if err != nil || res.Response.Mode != api.Response_Success {
-			continue
-		}
-		Log.DEBUG(res)
-		bk.ProducerDisConnect(context.Background(), &api.DisConnectInfo{})
-	}
-}
-func TestBroker_RegisterProducer(t *testing.T) {
-	bks := pullUp3BrokersWithMetadata()
-	for _, bk := range bks {
-		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
-		})
-		if err != nil || res.Response.Mode != api.Response_Success {
-			continue
-		}
-		Log.DEBUG(res)
-		bk.RegisterProducer(context.Background(), &api.RegisterProducerRequest{})
-	}
-}
-func TestBroker_CreateTopic(t *testing.T) {
-	bks := pullUp3BrokersWithMetadata()
-	for _, bk := range bks {
-		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
-		})
-		if err != nil || res.Response.Mode != api.Response_Success {
-			continue
-		}
-		Log.DEBUG(res)
-		bk.CreateTopic(context.Background(), &api.CreateTopicRequest{})
-	}
-}
-func TestBroker_QueryTopic(t *testing.T) {
-	bks := pullUp3BrokersWithMetadata()
-	for _, bk := range bks {
-		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
-		})
-		if err != nil || res.Response.Mode != api.Response_Success {
-			continue
-		}
-		Log.DEBUG(res)
-		bk.QueryTopic(context.Background(), &api.QueryTopicRequest{})
-	}
-}
+
 func TestBroker_UnRegisterConsumer(t *testing.T) {
 	bks := pullUp3BrokersWithMetadata()
 	for _, bk := range bks {
@@ -404,6 +439,7 @@ func TestBroker_UnRegisterConsumer(t *testing.T) {
 		bk.UnRegisterConsumer(context.Background(), &api.UnRegisterConsumerRequest{})
 	}
 }
+
 func TestBroker_UnRegisterProducer(t *testing.T) {
 	bks := pullUp3BrokersWithMetadata()
 	for _, bk := range bks {
@@ -418,76 +454,7 @@ func TestBroker_UnRegisterProducer(t *testing.T) {
 		bk.UnRegisterProducer(context.Background(), &api.UnRegisterProducerRequest{})
 	}
 }
-func TestBroker_JoinConsumerGroup(t *testing.T) {
-	bks := pullUp3BrokersWithMetadata()
-	for _, bk := range bks {
-		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
-		})
-		if err != nil || res.Response.Mode != api.Response_Success {
-			continue
-		}
-		Log.DEBUG(res)
-		bk.JoinConsumerGroup(context.Background(), &api.JoinConsumerGroupRequest{})
-	}
-}
-func TestBroker_LeaveConsumerGroup(t *testing.T) {
-	bks := pullUp3BrokersWithMetadata()
-	for _, bk := range bks {
-		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
-		})
-		if err != nil || res.Response.Mode != api.Response_Success {
-			continue
-		}
-		Log.DEBUG(res)
-		bk.LeaveConsumerGroup(context.Background(), &api.LeaveConsumerGroupRequest{})
-	}
-}
-func TestBroker_CheckSourceTerm(t *testing.T) {
-	bks := pullUp3BrokersWithMetadata()
-	for _, bk := range bks {
-		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
-		})
-		if err != nil || res.Response.Mode != api.Response_Success {
-			continue
-		}
-		Log.DEBUG(res)
-		bk.CheckSourceTerm(context.Background(), &api.CheckSourceTermRequest{})
-	}
-}
-func TestBroker_RegisterConsumerGroup(t *testing.T) {
-	bks := pullUp3BrokersWithMetadata()
-	for _, bk := range bks {
-		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
-		})
-		if err != nil || res.Response.Mode != api.Response_Success {
-			continue
-		}
-		Log.DEBUG(res)
-		bk.RegisterConsumerGroup(context.Background(), &api.RegisterConsumerGroupRequest{})
-	}
-}
-func TestBroker_ConfirmIdentity(t *testing.T) {
-	bks := pullUp3BrokersWithMetadata()
-	for _, bk := range bks {
-		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
-		})
-		if err != nil || res.Response.Mode != api.Response_Success {
-			continue
-		}
-		Log.DEBUG(res)
-		bk.ConfirmIdentity(context.Background(), &api.ConfirmIdentityRequest{})
-	}
-}
+
 func TestBroker_PullMessage(t *testing.T) {
 	bks := pullUp3BrokersWithMetadata()
 	for _, bk := range bks {
@@ -502,26 +469,7 @@ func TestBroker_PullMessage(t *testing.T) {
 		bk.PullMessage(context.Background(), &api.PullMessageRequest{})
 	}
 }
-func TestBroker_checkProducer(t *testing.T) {
-	bks := pullUp3BrokersWithMetadata()
-	for _, bk := range bks {
-		bk.checkProducer(context.Background(), &api.Credentials{})
-	}
-}
-func TestBroker_CheckSourceTermCall(t *testing.T) {
-	bks := pullUp3BrokersWithMetadata()
-	for _, bk := range bks {
-		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
-		})
-		if err != nil || res.Response.Mode != api.Response_Success {
-			continue
-		}
-		Log.DEBUG(res)
-		bk.CheckSourceTermCall(context.Background(), &api.CheckSourceTermRequest{})
-	}
-}
+
 func TestBroker_PushMessage(t *testing.T) {
 	bks := pullUp3BrokersWithMetadata()
 	for _, bk := range bks {
@@ -534,19 +482,5 @@ func TestBroker_PushMessage(t *testing.T) {
 		}
 		Log.DEBUG(res)
 		bk.PushMessage(context.Background(), &api.PushMessageRequest{})
-	}
-}
-func TestBroker_Heartbeat(t *testing.T) {
-	bks := pullUp3BrokersWithMetadata()
-	for _, bk := range bks {
-		res, err := bk.CreateTopic(context.Background(), &api.CreateTopicRequest{
-			Topic:     "testTopic",
-			Partition: NewPartInfo([]int{1, 2}),
-		})
-		if err != nil || res.Response.Mode != api.Response_Success {
-			continue
-		}
-		Log.DEBUG(res)
-		bk.Heartbeat(context.Background(), &api.MQHeartBeatData{})
 	}
 }

@@ -56,6 +56,7 @@ service MqServerCall {
 }
 
 message RegisterBrokerRequest {
+  Credentials cred = 5;
   bool IsMetadataNode = 1;
   string ID = 2;
   string MqServerUrl = 3;

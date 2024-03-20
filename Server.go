@@ -236,7 +236,7 @@ func (s *broker) Serve() error {
 		return errors.New("not Find RegisterServer Register failed")
 	}
 success:
-	s.wg.Add(3)
+	s.wg.Add(2)
 	go s.CheckProducerTimeout()
 	go s.goSendHeartbeat()
 	//go bk.keepUpdates(ch)
@@ -276,20 +276,23 @@ func (s *broker) CancelReg2Cluster(consumer *ConsumerGroup.Consumer) {
 	}
 }
 
-// for option call
-func (s *broker) registerRaftNode() (err error) {
-	if s.MetaDataController == nil {
-		return (Err.ErrRequestIllegal)
-	}
-	ID_Url := []struct{ ID, Url string }{}
-	for ID, peer := range s.MetadataPeers {
-		ID_Url = append(ID_Url, struct{ ID, Url string }{Url: peer.Url, ID: ID})
-	}
-	s.MetaDataController.MetaDataRaft, err = s.RaftServer.RegisterMetadataRaft(ID_Url, s.MetaDataController, s.MetaDataController)
-	return err
-}
+//// for option call
+//func (s *broker) registerRaftNode() (err error) {
+//	if s.MetaDataController == nil {
+//		return (Err.ErrRequestIllegal)
+//	}
+//	ID_Url := []struct{ ID, Url string }{}
+//	for ID, peer := range s.MetadataPeers {
+//		ID_Url = append(ID_Url, struct{ ID, Url string }{Url: peer.Url, ID: ID})
+//	}
+//	s.MetaDataController.MetaDataRaft, err = s.RaftServer.RegisterMetadataRaft(ID_Url, s.MetaDataController, s.MetaDataController)
+//	return err
+//}
 
 func (s *broker) RegisterBroker(_ context.Context, req *api.RegisterBrokerRequest) (response *api.RegisterBrokerResponse, err error) {
+	if req.Cred.Key != s.Key {
+		return nil, errors.New("NOT Same Key")
+	}
 	if s.IsStop && s.MetaDataController != nil && s.MetaDataController.IsLeader() {
 		return &api.RegisterBrokerResponse{Response: ResponseErrNotLeader()}, nil
 	}
@@ -600,6 +603,7 @@ func (s *broker) RegisterConsumerGroup(_ context.Context, req *api.RegisterConsu
 	if res == nil {
 		panic("Ub")
 	}
+	res.Cred.Key = s.Key
 	return res, nil
 }
 
