@@ -1,7 +1,7 @@
 package RaftServer
 
 import (
-	MyLog "BorsMqServer/Log"
+	MyLog "github.com/YarBor/BorsMqServer/Log"
 	"testing"
 	"time"
 )

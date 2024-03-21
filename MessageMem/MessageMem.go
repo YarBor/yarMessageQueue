@@ -1,9 +1,9 @@
 package MessageMem
 
 import (
-	"BorsMqServer/RaftServer/Pack"
-	"BorsMqServer/common"
 	"bytes"
+	"github.com/YarBor/BorsMqServer/RaftServer/Pack"
+	"github.com/YarBor/BorsMqServer/common"
 	"sync/atomic"
 )
 

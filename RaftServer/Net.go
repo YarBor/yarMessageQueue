@@ -1,12 +1,12 @@
 package RaftServer
 
 import (
-	PgLog "BorsMqServer/Log"
-	"BorsMqServer/RaftServer/Pack"
-	pb "BorsMqServer/api"
 	"bytes"
 	"context"
 	"errors"
+	PgLog "github.com/YarBor/BorsMqServer/Log"
+	"github.com/YarBor/BorsMqServer/RaftServer/Pack"
+	pb "github.com/YarBor/BorsMqServer/api"
 	"google.golang.org/grpc"
 )
 

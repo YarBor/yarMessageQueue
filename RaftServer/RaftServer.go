@@ -1,15 +1,15 @@
 package RaftServer
 
 import (
-	"BorsMqServer/Err"
-	mqLog "BorsMqServer/Log"
-	"BorsMqServer/RaftServer/Pack"
-	"BorsMqServer/RaftServer/Persister"
-	"BorsMqServer/api"
-	"BorsMqServer/common"
 	"bytes"
 	"context"
 	"errors"
+	"github.com/YarBor/BorsMqServer/Err"
+	mqLog "github.com/YarBor/BorsMqServer/Log"
+	"github.com/YarBor/BorsMqServer/RaftServer/Pack"
+	"github.com/YarBor/BorsMqServer/RaftServer/Persister"
+	"github.com/YarBor/BorsMqServer/api"
+	"github.com/YarBor/BorsMqServer/common"
 	"google.golang.org/grpc"
 	"net"
 	"sync"

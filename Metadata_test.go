@@ -1,10 +1,10 @@
 package MqServer
 
 import (
-	Log "BorsMqServer/Log"
-	"BorsMqServer/RaftServer"
-	"BorsMqServer/Random"
-	"BorsMqServer/api"
+	Log "github.com/YarBor/BorsMqServer/Log"
+	"github.com/YarBor/BorsMqServer/RaftServer"
+	"github.com/YarBor/BorsMqServer/Random"
+	"github.com/YarBor/BorsMqServer/api"
 	"github.com/stretchr/testify/assert"
 	"sort"
 	"strconv"

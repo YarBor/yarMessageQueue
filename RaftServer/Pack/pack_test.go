@@ -1,8 +1,8 @@
 package Pack
 
 import (
-	pb "BorsMqServer/api"
 	"encoding/json"
+	pb "github.com/YarBor/BorsMqServer/api"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )

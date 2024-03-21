@@ -1,9 +1,9 @@
 package MqServer
 
 import (
-	"BorsMqServer/ConsumerGroup"
-	Log "BorsMqServer/Log"
-	"BorsMqServer/RaftServer"
+	"github.com/YarBor/BorsMqServer/ConsumerGroup"
+	Log "github.com/YarBor/BorsMqServer/Log"
+	"github.com/YarBor/BorsMqServer/RaftServer"
 	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"

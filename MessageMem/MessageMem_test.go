@@ -1,10 +1,10 @@
 package MessageMem
 
 import (
-	Log "BorsMqServer/Log"
-	"BorsMqServer/Random"
 	"context"
 	"fmt"
+	Log "github.com/YarBor/BorsMqServer/Log"
+	"github.com/YarBor/BorsMqServer/Random"
 	"github.com/stretchr/testify/assert"
 	"math/rand"
 	"strconv"

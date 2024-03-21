@@ -1,4 +1,4 @@
-module BorsMqServer
+module github.com/YarBor/BorsMqServer
 
 go 1.20
 

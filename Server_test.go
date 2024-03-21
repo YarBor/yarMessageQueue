@@ -1,12 +1,12 @@
 package MqServer
 
 import (
-	"BorsMqServer/ConsumerGroup"
-	Log "BorsMqServer/Log"
-	"BorsMqServer/Random"
-	"BorsMqServer/api"
-	"BorsMqServer/common"
 	"context"
+	"github.com/YarBor/BorsMqServer/ConsumerGroup"
+	Log "github.com/YarBor/BorsMqServer/Log"
+	"github.com/YarBor/BorsMqServer/Random"
+	"github.com/YarBor/BorsMqServer/api"
+	"github.com/YarBor/BorsMqServer/common"
 	"github.com/stretchr/testify/assert"
 	"sync"
 	"sync/atomic"

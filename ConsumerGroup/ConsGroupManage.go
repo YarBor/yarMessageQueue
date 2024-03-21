@@ -1,9 +1,9 @@
 package ConsumerGroup
 
 import (
-	"BorsMqServer/Err"
-	"BorsMqServer/RaftServer/Pack"
 	"bytes"
+	"github.com/YarBor/BorsMqServer/Err"
+	"github.com/YarBor/BorsMqServer/RaftServer/Pack"
 	"io"
 	"sync"
 	"sync/atomic"

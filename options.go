@@ -1,10 +1,10 @@
 package MqServer
 
 import (
-	"BorsMqServer/Random"
-	"BorsMqServer/common"
 	"errors"
 	"fmt"
+	"github.com/YarBor/BorsMqServer/Random"
+	"github.com/YarBor/BorsMqServer/common"
 )
 
 func mergeMaps(map1, map2 map[string]interface{}) map[string]interface{} {

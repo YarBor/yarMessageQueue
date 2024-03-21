@@ -1,15 +1,15 @@
 package MqServer
 
 import (
-	"BorsMqServer/Err"
-	Log "BorsMqServer/Log"
-	"BorsMqServer/RaftServer"
-	"BorsMqServer/RaftServer/Pack"
-	"BorsMqServer/Random"
-	"BorsMqServer/api"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/YarBor/BorsMqServer/Err"
+	Log "github.com/YarBor/BorsMqServer/Log"
+	"github.com/YarBor/BorsMqServer/RaftServer"
+	"github.com/YarBor/BorsMqServer/RaftServer/Pack"
+	"github.com/YarBor/BorsMqServer/Random"
+	"github.com/YarBor/BorsMqServer/api"
 	"sort"
 	"sync"
 	"sync/atomic"

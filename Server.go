@@ -1,14 +1,14 @@
 package MqServer
 
 import (
-	"BorsMqServer/ConsumerGroup"
-	"BorsMqServer/Err"
-	Log "BorsMqServer/Log"
-	"BorsMqServer/RaftServer"
-	"BorsMqServer/api"
-	"BorsMqServer/common"
 	"context"
 	"errors"
+	"github.com/YarBor/BorsMqServer/ConsumerGroup"
+	"github.com/YarBor/BorsMqServer/Err"
+	Log "github.com/YarBor/BorsMqServer/Log"
+	"github.com/YarBor/BorsMqServer/RaftServer"
+	"github.com/YarBor/BorsMqServer/api"
+	"github.com/YarBor/BorsMqServer/common"
 	"google.golang.org/grpc"
 	"net"
 
