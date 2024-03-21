@@ -46,10 +46,16 @@ service MqServerCall {
   rpc Heartbeat(MQHeartBeatData) returns (HeartBeatResponseData) {}
   rpc ConsumerDisConnect(DisConnectInfo) returns (Response) {}
   rpc ProducerDisConnect(DisConnectInfo) returns (Response) {}
+
   // 拉取消息
-  rpc PullMessage(PullMessageRequest) returns (PullMessageResponse) {}
   // 推送消息
+  rpc PullMessage(PullMessageRequest) returns (PullMessageResponse) {}
   rpc PushMessage(PushMessageRequest) returns (PushMessageResponse) {}
+  // 双向流式RPC，用于拉取消息
+  // 双向流式RPC，用于推送消息
+  rpc PullMessages(stream PullMessageRequest) returns (stream PullMessageResponse) {}
+  rpc PushMessages(stream PushMessageRequest) returns (stream PushMessageResponse) {}
+
   rpc ConfirmIdentity(ConfirmIdentityRequest) returns (ConfirmIdentityResponse){}
 
   rpc RegisterBroker(RegisterBrokerRequest) returns (RegisterBrokerResponse) {}

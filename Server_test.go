@@ -27,9 +27,9 @@ func pullUp3BrokersWithMetadata() []*broker {
 			common.RaftServerAddr("127.0.0.1", "20001"),
 			common.IsMetaDataServer(true),
 			common.BrokerID("Bk1"),
-			common.MetadataServerInfo("Bk1", "127.0.0.1", "20001", "127.0.0.1", "10001", -1),
-			common.MetadataServerInfo("Bk2", "127.0.0.1", "20002", "127.0.0.1", "10002", -1),
-			common.MetadataServerInfo("Bk3", "127.0.0.1", "20003", "127.0.0.1", "10003", -1),
+			common.MetadataServerInfo("Bk1", "127.0.0.1", "20001", "127.0.0.1", "10001", 1000),
+			common.MetadataServerInfo("Bk2", "127.0.0.1", "20002", "127.0.0.1", "10002", 1000),
+			common.MetadataServerInfo("Bk3", "127.0.0.1", "20003", "127.0.0.1", "10003", 1000),
 			common.BrokerKey(key),
 		).Build()
 		if err != nil {
@@ -52,9 +52,9 @@ func pullUp3BrokersWithMetadata() []*broker {
 			common.BrokerID("Bk2"),
 			common.IsMetaDataServer(true),
 			common.RaftServerAddr("127.0.0.1", "20002"),
-			common.MetadataServerInfo("Bk1", "127.0.0.1", "20001", "127.0.0.1", "10001", -1),
-			common.MetadataServerInfo("Bk2", "127.0.0.1", "20002", "127.0.0.1", "10002", -1),
-			common.MetadataServerInfo("Bk3", "127.0.0.1", "20003", "127.0.0.1", "10003", -1),
+			common.MetadataServerInfo("Bk1", "127.0.0.1", "20001", "127.0.0.1", "10001", 1000),
+			common.MetadataServerInfo("Bk2", "127.0.0.1", "20002", "127.0.0.1", "10002", 1000),
+			common.MetadataServerInfo("Bk3", "127.0.0.1", "20003", "127.0.0.1", "10003", 1000),
 			common.BrokerKey(key),
 		).Build()
 		if err != nil {
@@ -75,10 +75,11 @@ func pullUp3BrokersWithMetadata() []*broker {
 		opt, err := NewBrokerOptions().With(
 			common.BrokerAddr("127.0.0.1", "10003"),
 			common.IsMetaDataServer(true),
+
 			common.RaftServerAddr("127.0.0.1", "20003"),
-			common.MetadataServerInfo("Bk1", "127.0.0.1", "20001", "127.0.0.1", "10001", -1),
-			common.MetadataServerInfo("Bk2", "127.0.0.1", "20002", "127.0.0.1", "10002", -1),
-			common.MetadataServerInfo("Bk3", "127.0.0.1", "20003", "127.0.0.1", "10003", -1),
+			common.MetadataServerInfo("Bk1", "127.0.0.1", "20001", "127.0.0.1", "10001", 1000),
+			common.MetadataServerInfo("Bk2", "127.0.0.1", "20002", "127.0.0.1", "10002", 1000),
+			common.MetadataServerInfo("Bk3", "127.0.0.1", "20003", "127.0.0.1", "10003", 1000),
 			common.BrokerID("Bk3"),
 			common.BrokerKey(key),
 		).Build()

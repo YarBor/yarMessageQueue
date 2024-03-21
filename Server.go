@@ -38,25 +38,27 @@ type brokerPeer struct {
 
 type broker struct {
 	api.UnimplementedMqServerCallServer
-	mqCredentials            *api.Credentials
-	Config                   *BrokerOptions
-	RaftServer               *RaftServer.RaftServer
-	Url                      string
-	ID                       string
-	Key                      string
-	Listener                 net.Listener
-	Server                   *grpc.Server
-	ProducerIDCache          sync.Map
-	CacheStayTimeMs          int32
-	MetadataLeaderID         atomic.Value // *string
-	MetadataPeers            map[string]*brokerPeer
-	MetaDataController       *MetaDataController
-	PartitionsController     *PartitionsController
-	IsStop                   bool
-	wg                       sync.WaitGroup
-	RequestTimeoutSessionsMs int32
-	RaftHeartBeatSessionsMs  int32
-	BrokerHeartBeatSessionMs int32
+	mqCredentials        *api.Credentials
+	Config               *BrokerOptions
+	RaftServer           *RaftServer.RaftServer
+	Url                  string
+	ID                   string
+	Key                  string
+	Listener             net.Listener
+	Server               *grpc.Server
+	ProducerIDCache      sync.Map
+	CacheStayTimeMs      int32
+	MetadataLeaderID     atomic.Value // *string
+	MetadataPeers        map[string]*brokerPeer
+	MetaDataController   *MetaDataController
+	PartitionsController *PartitionsController
+	IsStop               bool
+	wg                   sync.WaitGroup
+	/*for stream call, check and close */
+	StreamRequestTimeoutSessionsMs int32
+	RaftHeartBeatSessionsMs        int32
+	/*Periodically register with the registration center */
+	BrokerToRegisterCenterHeartBeatSession int32
 }
 
 func (s *broker) CheckProducerTimeout() {
@@ -187,7 +189,7 @@ func (s *broker) goSendHeartbeat() {
 						}
 					}
 				}
-				time.Sleep(time.Duration(s.RequestTimeoutSessionsMs) * time.Millisecond)
+				time.Sleep(time.Duration(s.BrokerToRegisterCenterHeartBeatSession) * time.Millisecond)
 			}
 		next:
 			time.Sleep(50 * time.Millisecond)
@@ -228,7 +230,9 @@ func (s *broker) Serve() error {
 	}
 	if s.Config.data["IsMetaDataServer"].(bool) == false {
 		for _, peer := range s.MetadataPeers {
-			res, err := peer.Client.RegisterBroker(context.Background(), &api.RegisterBrokerRequest{IsMetadataNode: false, ID: s.ID, MqServerUrl: s.Url, HeartBeatSession: int64(s.BrokerHeartBeatSessionMs)})
+			res, err := peer.Client.RegisterBroker(context.Background(),
+				&api.RegisterBrokerRequest{IsMetadataNode: false, ID: s.ID, MqServerUrl: s.Url,
+					HeartBeatSession: int64(s.BrokerToRegisterCenterHeartBeatSession)})
 			if err != nil && res.Response.Mode == api.Response_Success {
 				goto success
 			}
@@ -302,26 +306,26 @@ func (s *broker) RegisterBroker(_ context.Context, req *api.RegisterBrokerReques
 func newBroker(option *BrokerOptions) (*broker, error) {
 	//var err error
 	bk := &broker{
-		UnimplementedMqServerCallServer: api.UnimplementedMqServerCallServer{},
-		mqCredentials:                   &api.Credentials{Identity: api.Credentials_Broker, Id: option.data["BrokerID"].(string), Key: option.data["BrokerKey"].(string)},
-		Config:                          option,
-		RaftServer:                      nil,
-		Url:                             option.data["BrokerAddr"].(string),
-		ID:                              option.data["BrokerID"].(string),
-		Key:                             option.data["BrokerKey"].(string),
-		Listener:                        nil,
-		Server:                          nil,
-		ProducerIDCache:                 sync.Map{},
-		CacheStayTimeMs:                 int32(common.CacheStayTime_Ms),
-		MetadataLeaderID:                atomic.Value{},
-		MetadataPeers:                   make(map[string]*brokerPeer),
-		MetaDataController:              nil,
-		PartitionsController:            nil, // TODO:
-		IsStop:                          false,
-		wg:                              sync.WaitGroup{},
-		RequestTimeoutSessionsMs:        int32(common.MQRequestTimeoutSessions_Ms),
-		RaftHeartBeatSessionsMs:         int32(common.RaftHeartbeatTimeout),
-		BrokerHeartBeatSessionMs:        option.data["BrokerHeartBeatSessionMs"].(int32),
+		UnimplementedMqServerCallServer:        api.UnimplementedMqServerCallServer{},
+		mqCredentials:                          &api.Credentials{Identity: api.Credentials_Broker, Id: option.data["BrokerID"].(string), Key: option.data["BrokerKey"].(string)},
+		Config:                                 option,
+		RaftServer:                             nil,
+		Url:                                    option.data["BrokerAddr"].(string),
+		ID:                                     option.data["BrokerID"].(string),
+		Key:                                    option.data["BrokerKey"].(string),
+		Listener:                               nil,
+		Server:                                 nil,
+		ProducerIDCache:                        sync.Map{},
+		CacheStayTimeMs:                        int32(common.CacheStayTime_Ms),
+		MetadataLeaderID:                       atomic.Value{},
+		MetadataPeers:                          make(map[string]*brokerPeer),
+		MetaDataController:                     nil,
+		PartitionsController:                   nil, // TODO:
+		IsStop:                                 false,
+		wg:                                     sync.WaitGroup{},
+		StreamRequestTimeoutSessionsMs:         int32(common.MQStreamRequestTimeoutSessions_Ms),
+		RaftHeartBeatSessionsMs:                int32(common.RaftHeartbeatTimeout),
+		BrokerToRegisterCenterHeartBeatSession: option.data["BrokerToRegisterCenterHeartBeatSession"].(int32),
 	}
 
 	i, ok := option.data["IsMetaDataServer"]
@@ -1083,4 +1087,106 @@ func (s *broker) Heartbeat(_ context.Context, req *api.MQHeartBeatData) (*api.He
 			Response: ResponseErrRequestIllegal(),
 		}, nil
 	}
+}
+
+func (s *broker) PullMessages(stream api.MqServerCall_PullMessagesServer) error {
+	timer := time.NewTimer(0)             // 创建一个初始时间为0的定时器，用于设置超时时间
+	defer timer.Stop()                    // 在函数结束时停止定时器
+	messageChan := make(chan interface{}) // 创建一个通道，用于接收消息或错误信息
+	s.wg.Add(1)                           // 增加等待组计数器，表示有一个goroutine正在运行
+	go func() {
+		// 接收消息
+		defer s.wg.Done() // 减少等待组计数器，表示goroutine已经完成
+		for {
+			request, err := stream.Recv() // 从流中接收消息
+			if err != nil {
+				// 发送错误到消息通道
+				messageChan <- err
+				return
+			} else {
+				// 发送消息到消息通道
+				messageChan <- request
+			}
+		}
+	}()
+
+	for {
+		timer.Reset(time.Millisecond *
+			time.Duration(s.StreamRequestTimeoutSessionsMs)) // 重设定时器的超时时间
+		select {
+		case <-timer.C:
+			// 超时关闭连接
+			return Err.ErrRequestTimeout
+		case request := <-messageChan:
+			if data, ok := request.(error); ok {
+				return data // 如果接收到的是错误信息，则返回错误
+			}
+			if data, ok := request.(*api.PullMessageRequest); ok {
+				res, err := s.PullMessage(context.Background(), data) // 调用PullMessage处理请求
+				if err != nil {
+					return err
+				} else {
+					err = stream.Send(res) // 将处理结果发送回流
+					if err != nil {
+						return err
+					}
+				}
+				continue
+			}
+			// 接收到消息，重设超时时间
+			panic("Ub") // 如果接收到的是其他类型的消息，抛出panic
+		}
+	}
+	return nil
+}
+
+func (s *broker) PushMessages(stream api.MqServerCall_PushMessagesServer) error {
+	timer := time.NewTimer(0)             // 创建一个初始时间为0的定时器，用于设置超时时间
+	defer timer.Stop()                    // 在函数结束时停止定时器
+	messageChan := make(chan interface{}) // 创建一个通道，用于接收消息或错误信息
+	s.wg.Add(1)                           // 增加等待组计数器，表示有一个goroutine正在运行
+	go func() {
+		// 接收消息
+		defer s.wg.Done() // 减少等待组计数器，表示goroutine已经完成
+		for {
+			request, err := stream.Recv() // 从流中接收消息
+			if err != nil {
+				// 发送错误到消息通道
+				messageChan <- err
+				return
+			} else {
+				// 发送消息到消息通道
+				messageChan <- request
+			}
+		}
+	}()
+
+	for {
+		timer.Reset(time.Millisecond *
+			time.Duration(s.StreamRequestTimeoutSessionsMs)) // 重设定时器的超时时间
+		select {
+		case <-timer.C:
+			// 超时关闭连接
+			return Err.ErrRequestTimeout
+		case request := <-messageChan:
+			if data, ok := request.(error); ok {
+				return data // 如果接收到的是错误信息，则返回错误
+			}
+			if data, ok := request.(*api.PushMessageRequest); ok {
+				res, err := s.PushMessage(context.Background(), data) // 调用PullMessage处理请求
+				if err != nil {
+					return err
+				} else {
+					err = stream.Send(res) // 将处理结果发送回流
+					if err != nil {
+						return err
+					}
+				}
+				continue
+			}
+			// 接收到消息，重设超时时间
+			panic("Ub") // 如果接收到的是其他类型的消息，抛出panic
+		}
+	}
+	return nil
 }

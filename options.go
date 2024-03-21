@@ -95,8 +95,19 @@ func (o *BrokerOptions) Build() (*BrokerOptions, error) {
 	if _, ok := o.data["BrokerKey"]; !ok {
 		o.data["BrokerKey"] = Random.RandStringBytes(16)
 	}
-	if _, ok := o.data["BrokerHeartBeatSessionMs"]; !ok {
-		o.data["BrokerHeartBeatSessionMs"] = common.BrokerHeartBeatSessionMs
+	if _, ok := o.data["BrokerToRegisterCenterHeartBeatSession"]; !ok {
+		o.data["BrokerToRegisterCenterHeartBeatSession"] = common.BrokerToRegisterCenterHeartBeatSession
+	}
+	//o.data["IsMetaDataServer"] = true
+	if i, ok := o.data["IsMetaDataServer"].(bool); ok && i {
+		if _, ok := o.data["MetadataServerInfo"]; !ok {
+			o.data["MetadataServerInfo"] = make(map[string]interface{})
+		}
+		o.data["MetadataServerInfo"].(map[string]interface{})[o.data["BrokerID"].(string)] = map[string]interface{}{
+			"RaftUrl":          o.data["RaftServerAddr"].(map[string]interface{})["Url"].(string),
+			"Url":              o.data["BrokerAddr"].(string),
+			"HeartBeatSession": o.data["BrokerToRegisterCenterHeartBeatSession"].(int32),
+		}
 	}
 	o.IsBuild = true
 	return o.Check()

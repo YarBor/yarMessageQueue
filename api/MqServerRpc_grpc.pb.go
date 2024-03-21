@@ -47,9 +47,13 @@ type MqServerCallClient interface {
 	ConsumerDisConnect(ctx context.Context, in *DisConnectInfo, opts ...grpc.CallOption) (*Response, error)
 	ProducerDisConnect(ctx context.Context, in *DisConnectInfo, opts ...grpc.CallOption) (*Response, error)
 	// 拉取消息
-	PullMessage(ctx context.Context, in *PullMessageRequest, opts ...grpc.CallOption) (*PullMessageResponse, error)
 	// 推送消息
+	PullMessage(ctx context.Context, in *PullMessageRequest, opts ...grpc.CallOption) (*PullMessageResponse, error)
 	PushMessage(ctx context.Context, in *PushMessageRequest, opts ...grpc.CallOption) (*PushMessageResponse, error)
+	// 双向流式RPC，用于拉取消息
+	// 双向流式RPC，用于推送消息
+	PullMessages(ctx context.Context, opts ...grpc.CallOption) (MqServerCall_PullMessagesClient, error)
+	PushMessages(ctx context.Context, opts ...grpc.CallOption) (MqServerCall_PushMessagesClient, error)
 	ConfirmIdentity(ctx context.Context, in *ConfirmIdentityRequest, opts ...grpc.CallOption) (*ConfirmIdentityResponse, error)
 	RegisterBroker(ctx context.Context, in *RegisterBrokerRequest, opts ...grpc.CallOption) (*RegisterBrokerResponse, error)
 }
@@ -233,6 +237,68 @@ func (c *mqServerCallClient) PushMessage(ctx context.Context, in *PushMessageReq
 	return out, nil
 }
 
+func (c *mqServerCallClient) PullMessages(ctx context.Context, opts ...grpc.CallOption) (MqServerCall_PullMessagesClient, error) {
+	stream, err := c.cc.NewStream(ctx, &MqServerCall_ServiceDesc.Streams[0], "/MqServer.MqServerCall/PullMessages", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &mqServerCallPullMessagesClient{stream}
+	return x, nil
+}
+
+type MqServerCall_PullMessagesClient interface {
+	Send(*PullMessageRequest) error
+	Recv() (*PullMessageResponse, error)
+	grpc.ClientStream
+}
+
+type mqServerCallPullMessagesClient struct {
+	grpc.ClientStream
+}
+
+func (x *mqServerCallPullMessagesClient) Send(m *PullMessageRequest) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *mqServerCallPullMessagesClient) Recv() (*PullMessageResponse, error) {
+	m := new(PullMessageResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *mqServerCallClient) PushMessages(ctx context.Context, opts ...grpc.CallOption) (MqServerCall_PushMessagesClient, error) {
+	stream, err := c.cc.NewStream(ctx, &MqServerCall_ServiceDesc.Streams[1], "/MqServer.MqServerCall/PushMessages", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &mqServerCallPushMessagesClient{stream}
+	return x, nil
+}
+
+type MqServerCall_PushMessagesClient interface {
+	Send(*PushMessageRequest) error
+	Recv() (*PushMessageResponse, error)
+	grpc.ClientStream
+}
+
+type mqServerCallPushMessagesClient struct {
+	grpc.ClientStream
+}
+
+func (x *mqServerCallPushMessagesClient) Send(m *PushMessageRequest) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *mqServerCallPushMessagesClient) Recv() (*PushMessageResponse, error) {
+	m := new(PushMessageResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 func (c *mqServerCallClient) ConfirmIdentity(ctx context.Context, in *ConfirmIdentityRequest, opts ...grpc.CallOption) (*ConfirmIdentityResponse, error) {
 	out := new(ConfirmIdentityResponse)
 	err := c.cc.Invoke(ctx, "/MqServer.MqServerCall/ConfirmIdentity", in, out, opts...)
@@ -280,9 +346,13 @@ type MqServerCallServer interface {
 	ConsumerDisConnect(context.Context, *DisConnectInfo) (*Response, error)
 	ProducerDisConnect(context.Context, *DisConnectInfo) (*Response, error)
 	// 拉取消息
-	PullMessage(context.Context, *PullMessageRequest) (*PullMessageResponse, error)
 	// 推送消息
+	PullMessage(context.Context, *PullMessageRequest) (*PullMessageResponse, error)
 	PushMessage(context.Context, *PushMessageRequest) (*PushMessageResponse, error)
+	// 双向流式RPC，用于拉取消息
+	// 双向流式RPC，用于推送消息
+	PullMessages(MqServerCall_PullMessagesServer) error
+	PushMessages(MqServerCall_PushMessagesServer) error
 	ConfirmIdentity(context.Context, *ConfirmIdentityRequest) (*ConfirmIdentityResponse, error)
 	RegisterBroker(context.Context, *RegisterBrokerRequest) (*RegisterBrokerResponse, error)
 	mustEmbedUnimplementedMqServerCallServer()
@@ -348,6 +418,12 @@ func (UnimplementedMqServerCallServer) PullMessage(context.Context, *PullMessage
 }
 func (UnimplementedMqServerCallServer) PushMessage(context.Context, *PushMessageRequest) (*PushMessageResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PushMessage not implemented")
+}
+func (UnimplementedMqServerCallServer) PullMessages(MqServerCall_PullMessagesServer) error {
+	return status.Errorf(codes.Unimplemented, "method PullMessages not implemented")
+}
+func (UnimplementedMqServerCallServer) PushMessages(MqServerCall_PushMessagesServer) error {
+	return status.Errorf(codes.Unimplemented, "method PushMessages not implemented")
 }
 func (UnimplementedMqServerCallServer) ConfirmIdentity(context.Context, *ConfirmIdentityRequest) (*ConfirmIdentityResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ConfirmIdentity not implemented")
@@ -710,6 +786,58 @@ func _MqServerCall_PushMessage_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MqServerCall_PullMessages_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(MqServerCallServer).PullMessages(&mqServerCallPullMessagesServer{stream})
+}
+
+type MqServerCall_PullMessagesServer interface {
+	Send(*PullMessageResponse) error
+	Recv() (*PullMessageRequest, error)
+	grpc.ServerStream
+}
+
+type mqServerCallPullMessagesServer struct {
+	grpc.ServerStream
+}
+
+func (x *mqServerCallPullMessagesServer) Send(m *PullMessageResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *mqServerCallPullMessagesServer) Recv() (*PullMessageRequest, error) {
+	m := new(PullMessageRequest)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func _MqServerCall_PushMessages_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(MqServerCallServer).PushMessages(&mqServerCallPushMessagesServer{stream})
+}
+
+type MqServerCall_PushMessagesServer interface {
+	Send(*PushMessageResponse) error
+	Recv() (*PushMessageRequest, error)
+	grpc.ServerStream
+}
+
+type mqServerCallPushMessagesServer struct {
+	grpc.ServerStream
+}
+
+func (x *mqServerCallPushMessagesServer) Send(m *PushMessageResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *mqServerCallPushMessagesServer) Recv() (*PushMessageRequest, error) {
+	m := new(PushMessageRequest)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 func _MqServerCall_ConfirmIdentity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ConfirmIdentityRequest)
 	if err := dec(in); err != nil {
@@ -838,6 +966,19 @@ var MqServerCall_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MqServerCall_RegisterBroker_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "PullMessages",
+			Handler:       _MqServerCall_PullMessages_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "PushMessages",
+			Handler:       _MqServerCall_PushMessages_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+	},
 	Metadata: "MqServerRpc.proto",
 }

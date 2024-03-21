@@ -421,26 +421,27 @@ func (gm *GroupsManager) HeartbeatCheck() {
 			}
 			gm.mu.RUnlock()
 			for _, Group := range groups {
-				Group.mu.TryRLock()
-				Cons := Group.Consumers
-				Group.mu.RUnlock()
-				IsTimeout := Cons.CheckTimeout(now)
-				if IsTimeout {
-					if Group.mu.TryLock() {
-						Group.Consumers = nil
-						if Group.Mode == ConsumerGroupToDel {
+				if Group.mu.TryRLock() {
+					Cons := Group.Consumers
+					Group.mu.RUnlock()
+					IsTimeout := Cons.CheckTimeout(now)
+					if IsTimeout {
+						if Group.mu.TryLock() {
+							Group.Consumers = nil
+							if Group.Mode == ConsumerGroupToDel {
+								gm.wg.Add(1)
+								go func() {
+									gm.DelGroup(Group.GroupId)
+									gm.wg.Done()
+								}()
+							}
+							Group.mu.Unlock()
 							gm.wg.Add(1)
 							go func() {
-								gm.DelGroup(Group.GroupId)
+								gm.offlineCall.CancelReg2Cluster(Cons)
 								gm.wg.Done()
 							}()
 						}
-						Group.mu.Unlock()
-						gm.wg.Add(1)
-						go func() {
-							gm.offlineCall.CancelReg2Cluster(Cons)
-							gm.wg.Done()
-						}()
 					}
 				}
 			}
