@@ -1,9 +1,9 @@
 package RaftServer
 
 import (
-	PgLog "MqServer/Log"
-	"MqServer/RaftServer/Pack"
-	pb "MqServer/api"
+	PgLog "BorsMqServer/Log"
+	"BorsMqServer/RaftServer/Pack"
+	pb "BorsMqServer/api"
 	"bytes"
 	"context"
 	"errors"

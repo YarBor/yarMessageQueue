@@ -1,11 +1,11 @@
 package MqServer
 
 import (
-	"MqServer/ConsumerGroup"
-	Log "MqServer/Log"
-	"MqServer/Random"
-	"MqServer/api"
-	"MqServer/common"
+	"BorsMqServer/ConsumerGroup"
+	Log "BorsMqServer/Log"
+	"BorsMqServer/Random"
+	"BorsMqServer/api"
+	"BorsMqServer/common"
 	"context"
 	"github.com/stretchr/testify/assert"
 	"sync"

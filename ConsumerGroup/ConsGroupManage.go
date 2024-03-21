@@ -1,8 +1,8 @@
 package ConsumerGroup
 
 import (
-	"MqServer/Err"
-	"MqServer/RaftServer/Pack"
+	"BorsMqServer/Err"
+	"BorsMqServer/RaftServer/Pack"
 	"bytes"
 	"io"
 	"sync"

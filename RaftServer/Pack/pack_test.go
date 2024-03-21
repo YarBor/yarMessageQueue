@@ -1,7 +1,7 @@
 package Pack
 
 import (
-	pb "MqServer/api"
+	pb "BorsMqServer/api"
 	"encoding/json"
 	"github.com/stretchr/testify/assert"
 	"testing"

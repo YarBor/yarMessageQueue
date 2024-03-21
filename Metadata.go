@@ -1,12 +1,12 @@
 package MqServer
 
 import (
-	"MqServer/Err"
-	Log "MqServer/Log"
-	"MqServer/RaftServer"
-	"MqServer/RaftServer/Pack"
-	"MqServer/Random"
-	"MqServer/api"
+	"BorsMqServer/Err"
+	Log "BorsMqServer/Log"
+	"BorsMqServer/RaftServer"
+	"BorsMqServer/RaftServer/Pack"
+	"BorsMqServer/Random"
+	"BorsMqServer/api"
 	"encoding/json"
 	"errors"
 	"fmt"

@@ -1,12 +1,12 @@
 package RaftServer
 
 import (
-	"MqServer/Err"
-	mqLog "MqServer/Log"
-	"MqServer/RaftServer/Pack"
-	"MqServer/RaftServer/Persister"
-	"MqServer/api"
-	"MqServer/common"
+	"BorsMqServer/Err"
+	mqLog "BorsMqServer/Log"
+	"BorsMqServer/RaftServer/Pack"
+	"BorsMqServer/RaftServer/Persister"
+	"BorsMqServer/api"
+	"BorsMqServer/common"
 	"bytes"
 	"context"
 	"errors"

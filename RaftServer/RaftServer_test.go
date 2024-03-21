@@ -1,7 +1,7 @@
 package RaftServer
 
 import (
-	MyLog "MqServer/Log"
+	MyLog "BorsMqServer/Log"
 	"testing"
 	"time"
 )

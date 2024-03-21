@@ -1,10 +1,10 @@
 package MqServer
 
 import (
-	Log "MqServer/Log"
-	"MqServer/RaftServer"
-	"MqServer/Random"
-	"MqServer/api"
+	Log "BorsMqServer/Log"
+	"BorsMqServer/RaftServer"
+	"BorsMqServer/Random"
+	"BorsMqServer/api"
 	"github.com/stretchr/testify/assert"
 	"sort"
 	"strconv"

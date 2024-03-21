@@ -1,7 +1,7 @@
 package MessageMem
 
 import (
-	"MqServer/RaftServer/Pack"
+	"BorsMqServer/RaftServer/Pack"
 	"bytes"
 	"sync"
 )

@@ -1,8 +1,8 @@
 package MessageMem
 
 import (
-	Log "MqServer/Log"
-	"MqServer/Random"
+	Log "BorsMqServer/Log"
+	"BorsMqServer/Random"
 	"context"
 	"fmt"
 	"github.com/stretchr/testify/assert"

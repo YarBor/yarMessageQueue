@@ -1,12 +1,12 @@
 package MqServer
 
 import (
-	"MqServer/ConsumerGroup"
-	"MqServer/Err"
-	Log "MqServer/Log"
-	"MqServer/RaftServer"
-	"MqServer/api"
-	"MqServer/common"
+	"BorsMqServer/ConsumerGroup"
+	"BorsMqServer/Err"
+	Log "BorsMqServer/Log"
+	"BorsMqServer/RaftServer"
+	"BorsMqServer/api"
+	"BorsMqServer/common"
 	"context"
 	"errors"
 	"google.golang.org/grpc"

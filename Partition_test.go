@@ -1,9 +1,9 @@
 package MqServer
 
 import (
-	"MqServer/ConsumerGroup"
-	Log "MqServer/Log"
-	"MqServer/RaftServer"
+	"BorsMqServer/ConsumerGroup"
+	Log "BorsMqServer/Log"
+	"BorsMqServer/RaftServer"
 	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"

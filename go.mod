@@ -1,4 +1,4 @@
-module MqServer
+module BorsMqServer
 
 go 1.20
 

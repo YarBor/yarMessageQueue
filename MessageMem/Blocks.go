@@ -1,8 +1,8 @@
 package MessageMem
 
 import (
-	Log "MqServer/Log"
-	"MqServer/RaftServer/Pack"
+	Log "BorsMqServer/Log"
+	"BorsMqServer/RaftServer/Pack"
 	"bytes"
 	"io"
 	"sync"

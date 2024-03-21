@@ -1,8 +1,8 @@
 package RaftServer
 
 import (
-	"MqServer/RaftServer/Persister"
-	"MqServer/common"
+	"BorsMqServer/RaftServer/Persister"
+	"BorsMqServer/common"
 
 	//	"bytes"
 	"bytes"
@@ -16,8 +16,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	MyLogger "MqServer/Log"
-	labPack "MqServer/RaftServer/Pack"
+	MyLogger "BorsMqServer/Log"
+	labPack "BorsMqServer/RaftServer/Pack"
 )
 
 func (rf *Raft) checkFuncDone(_ string) func() {

@@ -1,8 +1,8 @@
 package MqServer
 
 import (
-	"MqServer/Random"
-	"MqServer/common"
+	"BorsMqServer/Random"
+	"BorsMqServer/common"
 	"errors"
 	"fmt"
 )

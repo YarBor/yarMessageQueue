@@ -1,12 +1,12 @@
 package MqServer
 
 import (
-	"MqServer/ConsumerGroup"
-	"MqServer/Err"
-	"MqServer/MessageMem"
-	"MqServer/RaftServer"
-	"MqServer/RaftServer/Pack"
-	"MqServer/common"
+	"BorsMqServer/ConsumerGroup"
+	"BorsMqServer/Err"
+	"BorsMqServer/MessageMem"
+	"BorsMqServer/RaftServer"
+	"BorsMqServer/RaftServer/Pack"
+	"BorsMqServer/common"
 	"bytes"
 	"sync"
 	"sync/atomic"
