@@ -293,12 +293,27 @@ func (s *broker) CancelReg2Cluster(consumer *ConsumerGroup.Consumer) {
 //	return err
 //}
 
-func (s *broker) RegisterBroker(_ context.Context, req *api.RegisterBrokerRequest) (response *api.RegisterBrokerResponse, err error) {
+func (s *broker) RegisterBroker(ctx context.Context, req *api.RegisterBrokerRequest) (response *api.RegisterBrokerResponse, err error) {
 	if req.Cred.Key != s.Key {
 		return nil, errors.New("NOT Same Key")
 	}
-	if s.IsStop && s.MetaDataController != nil && s.MetaDataController.IsLeader() {
-		return &api.RegisterBrokerResponse{Response: ResponseErrNotLeader()}, nil
+	if s.MetaDataController == nil || s.MetaDataController.IsLeader() {
+		f, set := s.GetMetadataServers()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, Err.ErrRequestTimeout
+			default:
+			}
+			l := f()
+			res, err := l.Client.RegisterBroker(ctx, req)
+			if err != nil || res.Response.Mode != api.Response_Success {
+				continue
+			} else {
+				set()
+				return res, nil
+			}
+		}
 	}
 	return s.MetaDataController.RegisterBroker(req), nil
 }
@@ -413,11 +428,24 @@ func (s *broker) GetMetadataServers() (func() *brokerPeer, func()) {
 
 // 客户端和server之间的心跳
 // 注册消费者
-func (s *broker) RegisterConsumer(_ context.Context, req *api.RegisterConsumerRequest) (*api.RegisterConsumerResponse, error) {
-	if s.MetaDataController == nil {
-		return &api.RegisterConsumerResponse{
-			Response: ResponseErrNotLeader(),
-		}, nil
+func (s *broker) RegisterConsumer(ctx context.Context, req *api.RegisterConsumerRequest) (*api.RegisterConsumerResponse, error) {
+	if s.MetaDataController == nil || s.MetaDataController.IsLeader() {
+		f, set := s.GetMetadataServers()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, Err.ErrRequestTimeout
+			default:
+			}
+			l := f()
+			res, err := l.Client.RegisterConsumer(ctx, req)
+			if err != nil || res.Response.Mode != api.Response_Success {
+				continue
+			} else {
+				set()
+				return res, nil
+			}
+		}
 	}
 	res := s.MetaDataController.RegisterConsumer(req)
 	if res.Response.Mode == api.Response_Success {
@@ -441,59 +469,154 @@ func (s *broker) RegisterConsumer(_ context.Context, req *api.RegisterConsumerRe
 //	pb.RegisterMqServerCallServer(newServer, &b)
 //}
 
-func (s *broker) SubscribeTopic(_ context.Context, req *api.SubscribeTopicRequest) (*api.SubscribeTopicResponse, error) {
-	if s.MetaDataController == nil {
-		return &api.SubscribeTopicResponse{
-			Response: ResponseErrNotLeader(),
-		}, nil
+func (s *broker) SubscribeTopic(ctx context.Context, req *api.SubscribeTopicRequest) (*api.SubscribeTopicResponse, error) {
+	if s.MetaDataController == nil || s.MetaDataController.IsLeader() {
+		f, set := s.GetMetadataServers()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, Err.ErrRequestTimeout
+			default:
+			}
+			l := f()
+			res, err := l.Client.SubscribeTopic(ctx, req)
+			if err != nil || res.Response.Mode != api.Response_Success {
+				continue
+			} else {
+				set()
+				return res, nil
+			}
+		}
 	}
 	return s.MetaDataController.AddTopicRegisterConsumerGroup(req), nil
 }
-func (s *broker) UnSubscribeTopic(_ context.Context, req *api.UnSubscribeTopicRequest) (*api.UnSubscribeTopicResponse, error) {
-	if s.MetaDataController == nil {
-		return &api.UnSubscribeTopicResponse{
-			Response: ResponseErrNotLeader(),
-		}, nil
+func (s *broker) UnSubscribeTopic(ctx context.Context, req *api.UnSubscribeTopicRequest) (*api.UnSubscribeTopicResponse, error) {
+	if s.MetaDataController == nil || s.MetaDataController.IsLeader() {
+		f, set := s.GetMetadataServers()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, Err.ErrRequestTimeout
+			default:
+			}
+			l := f()
+			res, err := l.Client.UnSubscribeTopic(ctx, req)
+			if err != nil || res.Response.Mode != api.Response_Success {
+				continue
+			} else {
+				set()
+				return res, nil
+			}
+		}
 	}
 	return s.MetaDataController.DelTopicRegisterConsumerGroup(req), nil
 }
-func (s *broker) AddPart(_ context.Context, req *api.AddPartRequest) (*api.AddPartResponse, error) {
-	if s.MetaDataController == nil {
-		return &api.AddPartResponse{
-			Response: ResponseErrNotLeader(),
-		}, nil
+func (s *broker) AddPart(ctx context.Context, req *api.AddPartRequest) (*api.AddPartResponse, error) {
+	if s.MetaDataController == nil || s.MetaDataController.IsLeader() {
+		f, set := s.GetMetadataServers()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, Err.ErrRequestTimeout
+			default:
+			}
+			l := f()
+			res, err := l.Client.AddPart(ctx, req)
+			if err != nil || res.Response.Mode != api.Response_Success {
+				continue
+			} else {
+				set()
+				return res, nil
+			}
+		}
 	}
 	return s.MetaDataController.AddPart(req), nil
 }
-func (s *broker) RemovePart(_ context.Context, req *api.RemovePartRequest) (*api.RemovePartResponse, error) {
-	if s.MetaDataController == nil {
-		return &api.RemovePartResponse{
-			Response: ResponseErrNotLeader(),
-		}, nil
+func (s *broker) RemovePart(ctx context.Context, req *api.RemovePartRequest) (*api.RemovePartResponse, error) {
+	if s.MetaDataController == nil || s.MetaDataController.IsLeader() {
+		f, set := s.GetMetadataServers()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, Err.ErrRequestTimeout
+			default:
+			}
+			l := f()
+			res, err := l.Client.RemovePart(ctx, req)
+			if err != nil || res.Response.Mode != api.Response_Success {
+				continue
+			} else {
+				set()
+				return res, nil
+			}
+		}
 	}
 	return s.MetaDataController.RemovePart(req), nil
 }
 
-func (s *broker) ConsumerDisConnect(_ context.Context, req *api.DisConnectInfo) (*api.Response, error) {
-	if s.MetaDataController == nil {
-		return ResponseErrNotLeader(), nil
+func (s *broker) ConsumerDisConnect(ctx context.Context, req *api.DisConnectInfo) (*api.Response, error) {
+	if s.MetaDataController == nil || s.MetaDataController.IsLeader() {
+		f, set := s.GetMetadataServers()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, Err.ErrRequestTimeout
+			default:
+			}
+			l := f()
+			res, err := l.Client.ConsumerDisConnect(ctx, req)
+			if err != nil || res.Mode != api.Response_Success {
+				continue
+			} else {
+				set()
+				return res, nil
+			}
+		}
 	}
 	return s.MetaDataController.ConsumerDisConnect(req), nil
 }
 
-func (s *broker) ProducerDisConnect(_ context.Context, req *api.DisConnectInfo) (*api.Response, error) {
-	if s.MetaDataController == nil {
-		return ResponseErrNotLeader(), nil
+func (s *broker) ProducerDisConnect(ctx context.Context, req *api.DisConnectInfo) (*api.Response, error) {
+	if s.MetaDataController == nil || s.MetaDataController.IsLeader() {
+		f, set := s.GetMetadataServers()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, Err.ErrRequestTimeout
+			default:
+			}
+			l := f()
+			res, err := l.Client.ProducerDisConnect(ctx, req)
+			if err != nil || res.Mode != api.Response_Success {
+				continue
+			} else {
+				set()
+				return res, nil
+			}
+		}
 	}
 	return s.MetaDataController.ProducerDisConnect(req), nil
 }
 
 // 注册生产者
-func (s *broker) RegisterProducer(_ context.Context, req *api.RegisterProducerRequest) (*api.RegisterProducerResponse, error) {
-	if s.MetaDataController == nil {
-		return &api.RegisterProducerResponse{
-			Response: ResponseErrNotLeader(),
-		}, nil
+func (s *broker) RegisterProducer(ctx context.Context, req *api.RegisterProducerRequest) (*api.RegisterProducerResponse, error) {
+	if s.MetaDataController == nil || s.MetaDataController.IsLeader() {
+		f, set := s.GetMetadataServers()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, Err.ErrRequestTimeout
+			default:
+			}
+			l := f()
+			res, err := l.Client.RegisterProducer(ctx, req)
+			if err != nil || res.Response.Mode != api.Response_Success {
+				continue
+			} else {
+				set()
+				return res, nil
+			}
+		}
 	}
 	res := s.MetaDataController.RegisterProducer(req)
 	if res.Response.Mode == api.Response_Success {
@@ -503,11 +626,24 @@ func (s *broker) RegisterProducer(_ context.Context, req *api.RegisterProducerRe
 }
 
 // 创建话题
-func (s *broker) CreateTopic(_ context.Context, req *api.CreateTopicRequest) (*api.CreateTopicResponse, error) {
-	if s.MetaDataController == nil {
-		return &api.CreateTopicResponse{
-			Response: ResponseErrNotLeader(),
-		}, nil
+func (s *broker) CreateTopic(ctx context.Context, req *api.CreateTopicRequest) (*api.CreateTopicResponse, error) {
+	if s.MetaDataController == nil || s.MetaDataController.IsLeader() {
+		f, set := s.GetMetadataServers()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, Err.ErrRequestTimeout
+			default:
+			}
+			l := f()
+			res, err := l.Client.CreateTopic(ctx, req)
+			if err != nil || res.Response.Mode != api.Response_Success {
+				continue
+			} else {
+				set()
+				return res, nil
+			}
+		}
 	}
 	res := s.MetaDataController.CreateTopic(req)
 	if res == nil {
@@ -515,11 +651,24 @@ func (s *broker) CreateTopic(_ context.Context, req *api.CreateTopicRequest) (*a
 	}
 	return res, nil
 }
-func (s *broker) QueryTopic(_ context.Context, req *api.QueryTopicRequest) (*api.QueryTopicResponse, error) {
-	if s.MetaDataController == nil {
-		return &api.QueryTopicResponse{
-			Response: ResponseErrNotLeader(),
-		}, nil
+func (s *broker) QueryTopic(ctx context.Context, req *api.QueryTopicRequest) (*api.QueryTopicResponse, error) {
+	if s.MetaDataController == nil || s.MetaDataController.IsLeader() {
+		f, set := s.GetMetadataServers()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, Err.ErrRequestTimeout
+			default:
+			}
+			l := f()
+			res, err := l.Client.QueryTopic(ctx, req)
+			if err != nil || res.Response.Mode != api.Response_Success {
+				continue
+			} else {
+				set()
+				return res, nil
+			}
+		}
 	}
 	res := s.MetaDataController.QueryTopic(req)
 	if res == nil {
@@ -529,11 +678,24 @@ func (s *broker) QueryTopic(_ context.Context, req *api.QueryTopicRequest) (*api
 }
 
 // 注销
-func (s *broker) UnRegisterConsumer(_ context.Context, req *api.UnRegisterConsumerRequest) (*api.UnRegisterConsumerResponse, error) {
-	if s.MetaDataController == nil {
-		return &api.UnRegisterConsumerResponse{
-			Response: ResponseErrNotLeader(),
-		}, nil
+func (s *broker) UnRegisterConsumer(ctx context.Context, req *api.UnRegisterConsumerRequest) (*api.UnRegisterConsumerResponse, error) {
+	if s.MetaDataController == nil || s.MetaDataController.IsLeader() {
+		f, set := s.GetMetadataServers()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, Err.ErrRequestTimeout
+			default:
+			}
+			l := f()
+			res, err := l.Client.UnRegisterConsumer(ctx, req)
+			if err != nil || res.Response.Mode != api.Response_Success {
+				continue
+			} else {
+				set()
+				return res, nil
+			}
+		}
 	}
 	res := s.MetaDataController.UnRegisterConsumer(req)
 	if res == nil {
@@ -542,11 +704,24 @@ func (s *broker) UnRegisterConsumer(_ context.Context, req *api.UnRegisterConsum
 	return res, nil
 }
 
-func (s *broker) UnRegisterProducer(_ context.Context, req *api.UnRegisterProducerRequest) (*api.UnRegisterProducerResponse, error) {
-	if s.MetaDataController == nil {
-		return &api.UnRegisterProducerResponse{
-			Response: ResponseErrNotLeader(),
-		}, nil
+func (s *broker) UnRegisterProducer(ctx context.Context, req *api.UnRegisterProducerRequest) (*api.UnRegisterProducerResponse, error) {
+	if s.MetaDataController == nil || s.MetaDataController.IsLeader() {
+		f, set := s.GetMetadataServers()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, Err.ErrRequestTimeout
+			default:
+			}
+			l := f()
+			res, err := l.Client.UnRegisterProducer(ctx, req)
+			if err != nil || res.Response.Mode != api.Response_Success {
+				continue
+			} else {
+				set()
+				return res, nil
+			}
+		}
 	}
 	res := s.MetaDataController.UnRegisterProducer(req)
 	if res == nil {
@@ -555,11 +730,24 @@ func (s *broker) UnRegisterProducer(_ context.Context, req *api.UnRegisterProduc
 	return res, nil
 }
 
-func (s *broker) JoinConsumerGroup(_ context.Context, req *api.JoinConsumerGroupRequest) (*api.JoinConsumerGroupResponse, error) {
-	if s.MetaDataController == nil {
-		return &api.JoinConsumerGroupResponse{
-			Response: ResponseErrNotLeader(),
-		}, nil
+func (s *broker) JoinConsumerGroup(ctx context.Context, req *api.JoinConsumerGroupRequest) (*api.JoinConsumerGroupResponse, error) {
+	if s.MetaDataController == nil || s.MetaDataController.IsLeader() {
+		f, set := s.GetMetadataServers()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, Err.ErrRequestTimeout
+			default:
+			}
+			l := f()
+			res, err := l.Client.JoinConsumerGroup(ctx, req)
+			if err != nil || res.Response.Mode != api.Response_Success {
+				continue
+			} else {
+				set()
+				return res, nil
+			}
+		}
 	}
 	if req.Cred.Key != s.Key {
 		return nil, (Err.ErrRequestIllegal)
@@ -568,11 +756,24 @@ func (s *broker) JoinConsumerGroup(_ context.Context, req *api.JoinConsumerGroup
 	return res, nil
 }
 
-func (s *broker) LeaveConsumerGroup(_ context.Context, req *api.LeaveConsumerGroupRequest) (*api.LeaveConsumerGroupResponse, error) {
-	if s.MetaDataController == nil {
-		return &api.LeaveConsumerGroupResponse{
-			Response: ResponseErrNotLeader(),
-		}, nil
+func (s *broker) LeaveConsumerGroup(ctx context.Context, req *api.LeaveConsumerGroupRequest) (*api.LeaveConsumerGroupResponse, error) {
+	if s.MetaDataController == nil || s.MetaDataController.IsLeader() {
+		f, set := s.GetMetadataServers()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, Err.ErrRequestTimeout
+			default:
+			}
+			l := f()
+			res, err := l.Client.LeaveConsumerGroup(ctx, req)
+			if err != nil || res.Response.Mode != api.Response_Success {
+				continue
+			} else {
+				set()
+				return res, nil
+			}
+		}
 	}
 	if req.GroupCred.Key != s.Key || req.ConsumerCred.Key != s.Key {
 		return nil, (Err.ErrRequestIllegal)
@@ -581,14 +782,12 @@ func (s *broker) LeaveConsumerGroup(_ context.Context, req *api.LeaveConsumerGro
 	return res, nil
 }
 
-func (s *broker) CheckSourceTerm(_ context.Context, req *api.CheckSourceTermRequest) (*api.CheckSourceTermResponse, error) {
-	if s.MetaDataController == nil {
-		return &api.CheckSourceTermResponse{
-			Response: ResponseErrNotLeader(),
-		}, nil
-	}
+func (s *broker) CheckSourceTerm(ctx context.Context, req *api.CheckSourceTermRequest) (*api.CheckSourceTermResponse, error) {
 	if req.Self.Key != s.Key {
 		return nil, (Err.ErrRequestIllegal)
+	}
+	if s.MetaDataController == nil || !s.MetaDataController.IsLeader() {
+		return s.CheckSourceTermCall(ctx, req)
 	}
 	return s.MetaDataController.CheckSourceTerm(req), nil
 }
@@ -597,12 +796,26 @@ func (s *broker) CheckSourceTerm(_ context.Context, req *api.CheckSourceTermRequ
 //	return nil, nil
 //}
 
-func (s *broker) RegisterConsumerGroup(_ context.Context, req *api.RegisterConsumerGroupRequest) (*api.RegisterConsumerGroupResponse, error) {
-	if s.MetaDataController == nil {
-		return &api.RegisterConsumerGroupResponse{
-			Response: ResponseErrNotLeader(),
-		}, nil
-	} //TODO:
+func (s *broker) RegisterConsumerGroup(ctx context.Context, req *api.RegisterConsumerGroupRequest) (*api.RegisterConsumerGroupResponse, error) {
+	if s.MetaDataController == nil || s.MetaDataController.IsLeader() {
+		f, set := s.GetMetadataServers()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, Err.ErrRequestTimeout
+			default:
+			}
+			l := f()
+			res, err := l.Client.RegisterConsumerGroup(ctx, req)
+			if err != nil || res.Response.Mode != api.Response_Success {
+				continue
+			} else {
+				set()
+				return res, nil
+			}
+		}
+	}
+
 	res := s.MetaDataController.RegisterConsumerGroup(req)
 	if res == nil {
 		panic("Ub")
@@ -638,7 +851,6 @@ func ResponseErrRequestIllegal() *api.Response {
 func ResponseErrSourceNotEnough() *api.Response {
 	return &api.Response{Mode: api.Response_ErrSourceNotEnough}
 }
-
 func ResponseSuccess() *api.Response {
 	return &api.Response{Mode: api.Response_Success}
 }
@@ -648,11 +860,24 @@ func ResponseNotServer() *api.Response {
 
 // TODO: Need Part To Confirm
 
-func (s *broker) ConfirmIdentity(_ context.Context, req *api.ConfirmIdentityRequest) (*api.ConfirmIdentityResponse, error) {
-	if s.MetaDataController == nil {
-		return &api.ConfirmIdentityResponse{
-			Response: ResponseErrNotLeader(),
-		}, nil
+func (s *broker) ConfirmIdentity(ctx context.Context, req *api.ConfirmIdentityRequest) (*api.ConfirmIdentityResponse, error) {
+	if s.MetaDataController == nil || s.MetaDataController.IsLeader() {
+		f, set := s.GetMetadataServers()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, Err.ErrRequestTimeout
+			default:
+			}
+			l := f()
+			res, err := l.Client.ConfirmIdentity(ctx, req)
+			if err != nil || res.Response.Mode != api.Response_Success {
+				continue
+			} else {
+				set()
+				return res, nil
+			}
+		}
 	} else {
 		err := s.MetaDataController.ConfirmIdentity(req.CheckIdentity)
 		return &api.ConfirmIdentityResponse{Response: ErrToResponse(err)}, nil
@@ -761,24 +986,22 @@ func (s *broker) checkProducer(cxt context.Context, Credential *api.Credentials)
 }
 
 func (s *broker) CheckSourceTermCall(ctx context.Context, req *api.CheckSourceTermRequest) (res *api.CheckSourceTermResponse, err error) {
+	f, set := s.GetMetadataServers()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil, Err.ErrRequestTimeout
 		default:
 		}
-		f, set := s.GetMetadataServers()
-		for {
-			res, err = f().Client.CheckSourceTerm(context.Background(), req)
-			if err != nil {
-				Log.ERROR("Call False:", err.Error())
+		res, err = f().Client.CheckSourceTerm(context.Background(), req)
+		if err != nil {
+			Log.ERROR("Call False:", err.Error())
+		} else {
+			if res.Response.Mode == api.Response_Success {
+				set()
+				return res, nil
 			} else {
-				if res.Response.Mode == api.Response_Success {
-					set()
-					return res, nil
-				} else {
-					Log.WARN("Call False:", res.Response)
-				}
+				Log.WARN("Call False:", res.Response)
 			}
 		}
 	}

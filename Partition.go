@@ -372,30 +372,13 @@ Begin:
 			return nil, -1, -1, false, Err.ErrRequestIllegal
 		}
 		g.Consumers.TimeUpdate()
-		BeginOffset, data, ReadNum := _p.MessageEntry.Read(g.GetConsumeOffset(), ReadEntryNum, g.Consumers.MaxReturnMessageSize)
-		err := g.SetLastTimeOffset_Data(BeginOffset, &data)
-		if err != nil {
-			panic(err)
-		}
-		err = g.ChangeState(ConsumerGroup.ConsumerGroupNormal)
-		if err != nil {
-			panic(err)
-		}
-		if !g.SetConsumeOffset(BeginOffset + ReadNum) {
-			return nil, -1, -1, false, Err.ErrRequestIllegal
-		}
-		return data, BeginOffset, ReadNum, false, nil
-
-	case
-		ConsumerGroup.ConsumerGroupNormal:
-		if !g.CheckConsumer(ConsId) {
-			return nil, -1, -1, false, Err.ErrRequestIllegal
-		}
-		g.Consumers.TimeUpdate()
-		success, LastData, off := g.Commit(CommitIndex)
-		if success {
+		if ReadEntryNum != 0 {
 			BeginOffset, data, ReadNum := _p.MessageEntry.Read(g.GetConsumeOffset(), ReadEntryNum, g.Consumers.MaxReturnMessageSize)
 			err := g.SetLastTimeOffset_Data(BeginOffset, &data)
+			if err != nil {
+				panic(err)
+			}
+			err = g.ChangeState(ConsumerGroup.ConsumerGroupNormal)
 			if err != nil {
 				panic(err)
 			}
@@ -403,22 +386,16 @@ Begin:
 				return nil, -1, -1, false, Err.ErrRequestIllegal
 			}
 			return data, BeginOffset, ReadNum, false, nil
-		} else {
-			return LastData, off, int64(len(LastData)), false, nil
 		}
 	case
-		ConsumerGroup.ConsumerGroupToDel:
+		ConsumerGroup.ConsumerGroupNormal:
 		if !g.CheckConsumer(ConsId) {
 			return nil, -1, -1, false, Err.ErrRequestIllegal
 		}
 		g.Consumers.TimeUpdate()
-		success, Lastdata, off := g.Commit(CommitIndex)
-		if success {
-			if _p.MessageEntry.IsClearToDel(CommitIndex) {
-				_p.ConsumerGroupManager.DelGroup(ConsGid)
-				// Part-Check-Del In Other Part where Call Read
-				return nil, -1, -1, true, nil
-			} else {
+		if ReadEntryNum != 0 {
+			success, LastData, off := g.Commit(CommitIndex)
+			if success {
 				BeginOffset, data, ReadNum := _p.MessageEntry.Read(g.GetConsumeOffset(), ReadEntryNum, g.Consumers.MaxReturnMessageSize)
 				err := g.SetLastTimeOffset_Data(BeginOffset, &data)
 				if err != nil {
@@ -428,24 +405,56 @@ Begin:
 					return nil, -1, -1, false, Err.ErrRequestIllegal
 				}
 				return data, BeginOffset, ReadNum, false, nil
+			} else {
+				return LastData, off, int64(len(LastData)), false, nil
 			}
-		} else {
-			return Lastdata, off, int64(len(Lastdata)), false, nil
 		}
+	case
+		ConsumerGroup.ConsumerGroupToDel:
+		if !g.CheckConsumer(ConsId) {
+			return nil, -1, -1, false, Err.ErrRequestIllegal
+		}
+		g.Consumers.TimeUpdate()
+		if ReadEntryNum != 0 {
+			success, Lastdata, off := g.Commit(CommitIndex)
+			if success {
+				if _p.MessageEntry.IsClearToDel(CommitIndex) {
+					_p.ConsumerGroupManager.DelGroup(ConsGid)
+					// Part-Check-Del In Other Part where Call Read
+					return nil, -1, -1, true, nil
+				} else {
+					BeginOffset, data, ReadNum := _p.MessageEntry.Read(g.GetConsumeOffset(), ReadEntryNum, g.Consumers.MaxReturnMessageSize)
+					err := g.SetLastTimeOffset_Data(BeginOffset, &data)
+					if err != nil {
+						panic(err)
+					}
+					if !g.SetConsumeOffset(BeginOffset + ReadNum) {
+						return nil, -1, -1, false, Err.ErrRequestIllegal
+					}
+					return data, BeginOffset, ReadNum, false, nil
+				}
+			} else {
+				return Lastdata, off, int64(len(Lastdata)), false, nil
+			}
+		}
+
 	case
 		ConsumerGroup.ConsumerGroupChangeAndWaitCommit:
 		if g.CheckConsumer(ConsId) {
 			g.Consumers.TimeUpdate()
-			Success, data, off := g.Commit(CommitIndex)
-			if Success {
-				err := g.ChangeState(ConsumerGroup.ConsumerGroupStart)
-				if err != nil {
-					return nil, -1, -1, false, err
+			if ReadEntryNum == 0 {
+				Success, data, off := g.Commit(CommitIndex)
+				if Success {
+					err := g.ChangeState(ConsumerGroup.ConsumerGroupStart)
+					if err != nil {
+						return nil, -1, -1, false, err
+					} else {
+						return nil, -1, -1, true, nil
+					}
 				} else {
-					return nil, -1, -1, true, nil
+					return data, off, int64(len(data)), false, nil
 				}
 			} else {
-				return data, off, int64(len(data)), false, nil
 			}
 		} else {
 			if err := g.ChangeConsumer(ConsId); err == nil {
@@ -455,8 +464,7 @@ Begin:
 			}
 		}
 	}
-
-	panic("unreachable")
+	return nil, CommitIndex, 0, false, nil
 }
 
 //一个是Part的回收，一个是心跳监测去call_Part状态改变

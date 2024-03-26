@@ -2,8 +2,8 @@ package MessageMem
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/YarBor/BorsMqServer/RaftServer/Pack"
-	"github.com/YarBor/BorsMqServer/common"
 	"sync/atomic"
 )
 
@@ -123,10 +123,11 @@ func (me *MessageEntry) Write(bt []byte) {
 // Return( BeginOff Data ReadNum )
 func (me *MessageEntry) Read(Index int64, MaxEntries, MaxSize int32) (int64, [][]byte, int64) {
 	if MaxEntries <= 0 {
-		MaxEntries = common.DefaultMaxEntriesOf1Read
+		return Index, [][]byte{}, 0
 	}
 	if MaxSize <= 0 {
-		MaxSize = common.DefaultMaxSizeOf1Read
+		//MaxSize = common.DefaultMaxSizeOf1Read
+		panic(fmt.Sprintf("Max size cannot be smaller than 0"))
 	}
 	return me.En.read(Index, int64(MaxEntries), int64(MaxSize))
 }
