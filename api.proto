@@ -1,0 +1,342 @@
+syntax = "proto3";
+
+package MqServer;
+option go_package = "./api";
+
+service MqServerCall {
+
+  rpc JoinConsumerGroup(JoinConsumerGroupRequest)
+      returns (JoinConsumerGroupResponse) {}
+  rpc LeaveConsumerGroup(LeaveConsumerGroupRequest)
+      returns (LeaveConsumerGroupResponse) {}
+  rpc CheckSourceTerm(CheckSourceTermRequest)
+      returns (CheckSourceTermResponse) {}
+
+  rpc SubscribeTopic(SubscribeTopicRequest) returns (SubscribeTopicResponse) {}
+  rpc UnSubscribeTopic(UnSubscribeTopicRequest)
+      returns (UnSubscribeTopicResponse) {}
+
+  rpc RegisterConsumerGroup(RegisterConsumerGroupRequest)
+      returns (RegisterConsumerGroupResponse) {}
+
+  rpc CreateTopic(CreateTopicRequest) returns (CreateTopicResponse) {}
+  rpc QueryTopic(QueryTopicRequest) returns (QueryTopicResponse) {}
+
+  rpc AddPart(AddPartRequest) returns (AddPartResponse) {}
+  rpc RemovePart(RemovePartRequest) returns (RemovePartResponse) {}
+
+  rpc RegisterConsumer(RegisterConsumerRequest)
+      returns (RegisterConsumerResponse) {}
+  rpc RegisterProducer(RegisterProducerRequest)
+      returns (RegisterProducerResponse) {}
+
+  rpc UnRegisterConsumer(UnRegisterConsumerRequest)
+      returns (UnRegisterConsumerResponse) {}
+  rpc UnRegisterProducer(UnRegisterProducerRequest)
+      returns (UnRegisterProducerResponse) {}
+
+  rpc Heartbeat(MQHeartBeatData) returns (HeartBeatResponseData) {}
+
+  rpc ConsumerDisConnect(DisConnectInfo) returns (Response) {}
+  rpc ProducerDisConnect(DisConnectInfo) returns (Response) {}
+
+  rpc PullMessage(PullMessageRequest) returns (PullMessageResponse) {}
+  rpc PushMessage(PushMessageRequest) returns (PushMessageResponse) {}
+
+  rpc PullMessages(stream PullMessageRequest) returns (stream PullMessageResponse) {}
+  rpc PushMessages(stream PushMessageRequest) returns (stream PushMessageResponse) {}
+
+  rpc ConfirmIdentity(ConfirmIdentityRequest) returns (ConfirmIdentityResponse){}
+
+  rpc RegisterBroker(RegisterBrokerRequest) returns (RegisterBrokerResponse) {}
+}
+
+message RegisterBrokerRequest {
+  Credentials cred = 5;
+  bool IsMetadataNode = 1;
+  string ID = 2;
+  string MqServerUrl = 3;
+  int64 HeartBeatSession = 4;
+}
+
+message RegisterBrokerResponse {
+  Response response = 1;
+}
+
+message HeartBeatResponseData {
+  message tpKv{
+    map<string, int32> TopicTerm = 1;
+  }
+  message cgKv {
+    map<string, int32> changedGroup = 1;
+  }
+  Response response = 1;
+  optional tpKv ChangedTopic = 2;
+  optional cgKv ChangedConsumerGroup = 3 ;
+}
+
+message ConfirmIdentityRequest {
+  Credentials self = 1 ;
+  Credentials CheckIdentity = 2;
+}
+
+message ConfirmIdentityResponse {
+  Response response = 1;
+}
+
+
+message DisConnectInfo {
+  Credentials BrokerInfo = 1;
+  Credentials TargetInfo = 2;
+}
+
+message AddPartRequest {
+  Credentials Cred = 1;
+  Partition part = 3;
+}
+
+message AddPartResponse {Response response = 1;}
+
+message RemovePartRequest {
+  Credentials Cred = 1;
+  string Topic = 2;
+  string Part = 3;
+}
+
+message RemovePartResponse {Response response = 1;}
+
+message SubscribeTopicRequest {
+  Credentials CGCred = 4;
+  string Tp = 3;
+}
+
+message SubscribeTopicResponse {Response response = 1;}
+
+message UnSubscribeTopicRequest {
+  Credentials CGCred = 4;
+  string Tp = 3;
+}
+
+message UnSubscribeTopicResponse {Response response = 1;}
+
+// When the identity is a broker, all options are
+// valid and all partition information is downloaded.
+message CheckSourceTermResponse {
+  message IDs {
+    repeated string ID = 1;
+  }
+  message PartsData {
+    message Parts {
+      Partition Part = 3;
+      optional string ConsumerID = 1;
+      optional int32 ConsumerTimeoutSession = 11;
+      optional int32 ConsumerMaxReturnMessageSize = 12;
+      optional int32 ConsumerMaxReturnMessageEntries = 10;
+    }
+    repeated Parts FcParts = 3;
+    optional IDs FollowerProducerIDs = 2;
+    optional IDs FollowerConsumerGroupIDs = 1;  // TO Del ？
+  }
+  Response response = 5;
+  int32 TopicTerm = 1;
+  int32 GroupTerm = 2;
+  optional PartsData ConsumersData = 16;
+  optional RegisterConsumerGroupRequest.PullOptionMode ConsumerGroupOption = 13;
+  optional PartsData TopicData = 6;
+}
+
+message CheckSourceTermRequest {
+  message TopicCheck {
+    string topic = 4;
+    int32 TopicTerm = 1;
+  }
+  message ConsumerCheck {
+    optional string ConsumerId = 13;
+    string GroupID = 1;
+    int32 GroupTerm = 2;
+  }
+  Credentials Self = 3;
+  optional TopicCheck TopicData = 4;
+  optional ConsumerCheck ConsumerData = 16;
+}
+
+message LeaveConsumerGroupRequest {
+  Credentials GroupCred = 1;
+  Credentials ConsumerCred = 2;
+}
+
+message LeaveConsumerGroupResponse {Response response = 1;}
+
+message JoinConsumerGroupRequest {
+  Credentials Cred = 1;
+  string ConsumerGroupId = 2;
+}
+
+message JoinConsumerGroupResponse {
+  Response response = 1;
+  repeated Partition FcParts = 3;
+  int32 GroupTerm = 4;
+}
+
+message RegisterConsumerGroupRequest {
+  enum PullOptionMode {
+    Latest = 0;
+    Earliest = 3;
+  }
+  PullOptionMode PullOption = 2;
+  optional string GroupId = 3;
+}
+
+message RegisterConsumerGroupResponse {
+  Response response = 2;
+  int32 GroupTerm = 4;
+  Credentials Cred = 1;
+}
+
+// [Credentials] find the corresponding Consumer by this field
+message Credentials {
+  enum CredentialsIdentity {
+    Consumer = 0;
+    Producer = 1;
+    Broker = 2;
+    ConsumerGroup = 3;
+  }
+  CredentialsIdentity Identity = 1;
+  string Id = 2;
+  string Key = 3;
+}
+
+message MQHeartBeatData {
+  Credentials BrokerData = 1;
+  message tpKv{
+    map<string, int32> TopicTerm = 1;
+  }
+  message cgKv {
+    map<string, int32> ConsumerGroup = 1;
+  }
+  optional tpKv CheckTopic = 2;
+  optional cgKv CheckConsumerGroup = 3 ;
+}
+
+message Response {
+  enum Mode {
+    Unset = 0;
+    Success = 1;
+    Failure = 2;
+    NotServe = 3;
+    ErrTimeout = 4;
+    ErrNeedToWait = 5;
+    ErrNotLeader = 6;
+    ErrSourceNotExist = 7;
+    ErrSourceAlreadyExist = 8;
+    ErrPartitionChanged = 9;
+    ErrRequestIllegal = 10;
+    ErrSourceNotEnough = 11;
+  }
+  Mode mode = 1;
+}
+
+message RegisterConsumerRequest {
+  int32 MaxReturnMessageSize = 3;
+  int32 MaxReturnMessageEntries = 1;
+  int32 timeoutSessionMsec = 4;
+}
+
+message BrokerData {
+  string Id = 1;
+  string Url = 2;
+}
+
+message TpData {
+  string Topic = 1;
+  int32 TpTerm = 2;
+  repeated Partition Parts = 3;
+}
+
+message Partition {
+  string Topic = 1;
+  string PartName = 2;
+  repeated BrokerData Brokers = 3;
+}
+
+message RegisterConsumerResponse {
+  Response response = 1;
+  Credentials Credential = 2;
+}
+
+message RegisterProducerRequest {
+  string FocalTopic = 1;
+  int32 MaxPushMessageSize = 3;
+}
+
+message RegisterProducerResponse {
+  Response response = 1;
+  Credentials Credential = 2;
+  TpData tpData = 3;
+  int32 AllowPushMessageSize = 4;
+  int32 AllowPushMessageCount = 5;
+}
+
+message CreateTopicRequest {
+  string Topic = 1;
+  message PartitionCreateDetails {
+    string PartitionName = 1;
+    int32 ReplicationNumber = 2;
+  }
+  repeated PartitionCreateDetails Partition = 3;
+}
+
+message CreateTopicResponse {
+  Response response = 1;
+  TpData tp = 2;
+}
+
+message QueryTopicRequest {
+  Credentials credential = 2;
+  string Topic = 1;
+}
+
+message QueryTopicResponse {
+  Response response = 1;
+  repeated Partition PartitionDetails = 2;
+  int32 TopicTerm = 3;
+}
+
+message UnRegisterConsumerRequest {Credentials credential = 1;}
+
+message UnRegisterConsumerResponse {Response response = 1;}
+
+message UnRegisterProducerRequest {Credentials credential = 1;}
+
+message UnRegisterProducerResponse {Response response = 1;}
+
+message Message {repeated bytes Message = 1;}
+
+message PushMessageRequest {
+  Credentials credential = 1;
+  string topic = 4;
+  string part = 5;
+  Message Msgs = 2;
+  int32 TopicTerm = 3;
+}
+
+message PushMessageResponse {Response response = 1;}
+
+message PullMessageRequest {
+  Credentials Group = 1;
+  Credentials Self = 3;
+  int32 GroupTerm = 6;
+  int64 LastTimeOffset = 7;
+  int32 ReadEntryNum = 8; // could == 0
+  string Topic = 4;
+  string Part = 5;
+}
+
+// to keep consumer alive
+message PullMessageResponse {
+  Response response = 1;
+  int64 MessageOffset = 3;
+  Message Msgs = 2;
+  // Use when ConsumerChange [commit Last] Or PartDel
+  bool IsCouldToDel = 6;
+}

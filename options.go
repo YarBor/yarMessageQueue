@@ -3,8 +3,11 @@ package MqServer
 import (
 	"errors"
 	"fmt"
-	"github.com/YarBor/BorsMqServer/Random"
+)
+
+import (
 	"github.com/YarBor/BorsMqServer/common"
+	"github.com/YarBor/BorsMqServer/random"
 )
 
 func mergeMaps(map1, map2 map[string]interface{}) map[string]interface{} {
@@ -93,7 +96,7 @@ func (o *BrokerOptions) Build() (*BrokerOptions, error) {
 		}
 	}
 	if _, ok := o.data["BrokerKey"]; !ok {
-		o.data["BrokerKey"] = Random.RandStringBytes(16)
+		o.data["BrokerKey"] = random.RandStringBytes(16)
 	}
 	if _, ok := o.data["BrokerToRegisterCenterHeartBeatSession"]; !ok {
 		o.data["BrokerToRegisterCenterHeartBeatSession"] = common.BrokerToRegisterCenterHeartBeatSession
@@ -124,7 +127,7 @@ func (o *BrokerOptions) Check() (*BrokerOptions, error) {
 		return nil, fmt.Errorf("need Set MetadataServerInfo")
 	}
 	if ID, ok := o.data["BrokerID"]; !ok {
-		o.data["BrokerID"] = Random.RandStringBytes(16)
+		o.data["BrokerID"] = random.RandStringBytes(16)
 	} else if ID == "" {
 		return nil, fmt.Errorf("BrokerID Is Empty")
 	}
