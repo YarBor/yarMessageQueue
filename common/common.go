@@ -9,13 +9,13 @@ import (
 )
 
 var (
-	DefaultEntryMaxSizeOfEachBlock int64 = int64(1e5)
-	PartDefaultMaxEntries          int32 = int32(500)
-	PartDefaultMaxSize             int32 = int32(1024 * 1024)
-	DefaultMaxEntriesOf1Read       int32 = int32(10)
-	DefaultMaxSizeOf1Read          int32 = int32(10 * 1024)
-	RaftLogSize                    int   = 1024 * 1024 * 2
-
+	DefaultEntryMaxSizeOfEachBlock                                                                      int64  = int64(1e5)
+	PartDefaultMaxEntries                                                                               int32  = int32(500)
+	PartDefaultMaxSize                                                                                  int32  = int32(1024 * 1024)
+	DefaultMaxEntriesOf1Read                                                                            int32  = int32(10)
+	DefaultMaxSizeOf1Read                                                                               int32  = int32(10 * 1024)
+	RaftLogSize                                                                                         int    = 1024 * 1024 * 2
+	DefaultLogFilePrefix                                                                                string = "/run/yarMessage"
 	CacheStayTime_Ms/*producer Alive check session */ int32                                             = int32(5 * time.Second.Milliseconds())
 	MQCommitTimeout/*MQ Raft Commit Wait session */ time.Duration                                       = time.Millisecond * 500
 	MQStreamRequestTimeoutSessions_Ms/*for stream call, check and close */ int32                        = 300

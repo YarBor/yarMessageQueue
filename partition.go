@@ -303,7 +303,7 @@ func newPartition(t, p string,
 		Node:         nil,
 		T:            t,
 		P:            p,
-		MessageEntry: message_memory.NewMessageEntry(MaxEntries, MaxSize, common.DefaultEntryMaxSizeOfEachBlock),
+		MessageEntry: message_memory.NewMessageEntry(MaxEntries, MaxSize, common.DefaultEntryMaxSizeOfEachBlock, t, p),
 	}
 	part.ConsumerGroupManager = consumer_group.NewGroupsManager(handleTimeout, part)
 	node, err := server.RegisterRfNode(t, p, part, part, peers...)

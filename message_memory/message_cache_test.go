@@ -20,12 +20,12 @@ import (
 )
 
 func TestNewMessageEntry(t *testing.T) {
-	got := NewMessageEntry(10, 1e5, 3)
+	got := NewMessageEntry(10, 1e5, 3, "", "")
 	fmt.Printf("%#v", got)
 }
 
 func TestMessageEntry_Write_Normal(t *testing.T) {
-	got := NewMessageEntry(100, 1e6, 3e3)
+	got := NewMessageEntry(100, 1e6, 3e3, "", "")
 	fmt.Printf("%#v", got)
 	for i := 0; i < 10; i++ {
 		got.Write([]byte(random.RandStringBytes(1e3)))
@@ -35,7 +35,7 @@ func TestMessageEntry_Write_Normal(t *testing.T) {
 }
 
 func TestMessageEntry_Write_Lose_Entry(t *testing.T) {
-	got := NewMessageEntry(100, 1e6, 5e3)
+	got := NewMessageEntry(100, 1e6, 5e3, "", "")
 	fmt.Printf("%#v", got)
 	for i := 0; i < 105; i++ {
 		got.Write([]byte(random.RandStringBytes(1e3)))
@@ -45,7 +45,7 @@ func TestMessageEntry_Write_Lose_Entry(t *testing.T) {
 }
 
 func TestMessageEntry_Write_Lose_Size(t *testing.T) {
-	got := NewMessageEntry(100, 5e3, 3e3)
+	got := NewMessageEntry(100, 5e3, 3e3, "", "")
 	fmt.Printf("%#v", got)
 	for i := 0; i < 16; i++ {
 		got.Write([]byte(random.RandStringBytes(1e3)))
@@ -57,7 +57,7 @@ func TestMessageEntry_Write_Lose_Size(t *testing.T) {
 }
 
 func TestMessageEntry_Write_Read(t *testing.T) {
-	got := NewMessageEntry(100, 1e6, 3e3)
+	got := NewMessageEntry(100, 1e6, 3e3, "", "")
 	fmt.Printf("%#v", got)
 	checknum := []int{}
 	checkstr := []string{}
@@ -87,7 +87,7 @@ func TestMessageEntry_Write_Read(t *testing.T) {
 
 func TestMessageEntry_Write_Read_Lose(t *testing.T) {
 	Log.SetLogLevel(Log.LogLevel_TRACE)
-	got := NewMessageEntry(100, 1e6, 3e3)
+	got := NewMessageEntry(100, 1e6, 3e3, "", "")
 	//mu := sync.Mutex{}
 	check_map := map[int64]string{}
 	t.Logf("%#v", got)
@@ -145,8 +145,8 @@ func TestMessageEntry_Write_Read_Lose(t *testing.T) {
 }
 
 func TestMessageEntry_MakeSnapshot_LoadSnapShot(t *testing.T) {
-	got := NewMessageEntry(1030, 1e6, 3e3)
-	check := NewMessageEntry(1000, 10000, 010000)
+	got := NewMessageEntry(1030, 1e6, 3e3, "", "")
+	check := NewMessageEntry(1000, 10000, 010000, "", "")
 	fmt.Printf("%#v", got)
 	for i := 0; i < 190; i++ {
 		got.Write([]byte(random.RandStringBytes(1e3)))

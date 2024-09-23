@@ -3,6 +3,7 @@ package message_memory
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"sync/atomic"
 )
 
@@ -135,10 +136,15 @@ func (me *MessageEntry) Read(Index int64, MaxEntries, MaxSize int32) (int64, [][
 	return me.En.read(Index, int64(MaxEntries), int64(MaxSize))
 }
 
-func NewMessageEntry(MaxEntries, MaxSize uint64, EntryMaxSizeOf1Block int64) *MessageEntry {
+func NewMessageEntry(MaxEntries, MaxSize uint64, EntryMaxSizeOf1Block int64, t, p string) *MessageEntry {
+	i, err := newBlock(t, p)
+	if err != nil {
+		log.Print(err)
+		return nil
+	}
 	return &MessageEntry{
 		En: EntryBlocks{
-			Ens:                   append(make([]*Block, 0), newBlock()),
+			Ens:                   append(make([]*Block, 0), i),
 			BeginOffset:           0,
 			EntryMaxSizeOf_1Block: EntryMaxSizeOf1Block,
 		},
@@ -150,17 +156,6 @@ func NewMessageEntry(MaxEntries, MaxSize uint64, EntryMaxSizeOf1Block int64) *Me
 	}
 }
 
-//func (me *MessageEntry) Handle(command interface{}) error {
-//	bt, ok := command.([]byte)
-//	if !ok {
-//		panic("Invalid MessageEntry command")
-//	}
-//	me.En.Write(bt)
-//	return nil
-//}
-
-// TODO:
-
 func (me *MessageEntry) GetEndOffset() int64 {
 	me.En.mu.RLock()
 	defer me.En.mu.RUnlock()
@@ -171,14 +166,3 @@ func (me *MessageEntry) GetBeginOffset() int64 {
 	defer me.En.mu.RUnlock()
 	return me.En.BeginOffset
 }
-
-//func (me *MessageEntry) MakeSnapshot() []byte {
-//	me.En.mu.RLock()
-//	defer me.En.mu.RUnlock()
-//
-//}
-//
-//func (me *MessageEntry) LoadSnapshot([]byte) {
-//	me.En.mu.Lock()
-//	defer me.En.mu.Unlock()
-//}

@@ -3,6 +3,8 @@ package message_memory
 import (
 	"bytes"
 	"io"
+	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -15,6 +17,7 @@ import (
 type EntryBlocks struct {
 	mu                    sync.RWMutex
 	Ens                   []*Block
+	dir                   string
 	BeginOffset           int64
 	EndOffset             int64
 	EntryMaxSizeOf_1Block int64 // max size of all entries
@@ -91,7 +94,10 @@ func (ebs *EntryBlocks) Write(entry []byte) {
 	last.mu.RUnlock()
 
 	if size >= ebs.EntryMaxSizeOf_1Block {
-		last = newBlock()
+		dir := filepath.Dir(last.Path)
+		base := filepath.Base(last.Path)
+		i, _ := strconv.Atoi(base)
+		last, _ = newBlockWithPath(dir + strconv.Itoa(i+1))
 		ebs.Ens = append(ebs.Ens, last)
 	}
 
@@ -132,7 +138,6 @@ func (ebs *EntryBlocks) read(EntryBegin, MaxEntries, MaxSize int64) (int64, [][]
 	beginOffset := int64(0)
 	ebs.mu.RLock()
 	if endOff := ebs.EndOffset; endOff < EntryBegin {
-		Log.DEBUG("asdlfkjsadkfljkladfjsafsjkldkldsjfkdfj\n")
 		ebs.mu.RUnlock()
 		return endOff, nil, 0
 	} else if beginOffset = ebs.BeginOffset; beginOffset > EntryBegin {
