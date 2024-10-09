@@ -6,7 +6,7 @@ import (
 )
 
 import (
-	MyLog "github.com/YarBor/BorsMqServer/Log"
+	MyLog "github.com/YarBor/BorsMqServer/logger"
 )
 
 func TestMakeRaftServer(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/YarBor/BorsMqServer/raft_server/persist"
 	"log"
 	"math/rand"
 	"os"
@@ -14,10 +15,9 @@ import (
 )
 
 import (
-	MyLogger "github.com/YarBor/BorsMqServer/Log"
-	labPack "github.com/YarBor/BorsMqServer/RaftServer/Pack"
-	"github.com/YarBor/BorsMqServer/RaftServer/Persister"
 	"github.com/YarBor/BorsMqServer/common"
+	MyLogger "github.com/YarBor/BorsMqServer/logger"
+	labPack "github.com/YarBor/BorsMqServer/raft_server/pack"
 )
 
 func (rf *Raft) checkFuncDone(_ string) func() {
@@ -180,7 +180,7 @@ func (s *MsgStore) string() string {
 type Raft struct {
 	mu        sync.Mutex
 	peers     []*ClientEnd
-	persister *Persister.Persister
+	persister *persist.Persister
 	me        int
 	dead      int32
 
@@ -1473,7 +1473,7 @@ func (rf *Raft) call(index int, FuncName string, arg *RequestArgs, rpl *RequestR
 	return i
 }
 
-func Make(peers []*ClientEnd, me int, persister *Persister.Persister, applyCh chan ApplyMsg) *Raft {
+func Make(peers []*ClientEnd, me int, persister *persist.Persister, applyCh chan ApplyMsg) *Raft {
 	// os.Stderr.WriteString("RaftServer Make \n")
 	rf := &Raft{}
 	rf.pMsgStore = &MsgStore{msgs: make([]*LogData, 0), owner: -1, term: -1, mu: sync.Mutex{}}
